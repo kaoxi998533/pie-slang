@@ -566,63 +566,28 @@ const proofWorkerAPI: ProofWorkerAPI = {
     tacticType: string,
     params: TacticParams = {},
   ): Promise<ApplyTacticResponse> {
-    console.log(
-      "[ProofWorker] applyTactic() called:",
-      tacticType,
-      "on goal:",
-      goalId,
-      "params:",
-      params,
-    );
-
     const session = sessions.get(sessionId);
     if (!session) {
-      return {
-        success: false,
-        proofTree: {
-          root: {
-            goal: {
-              id: "",
-              type: "",
-              context: [],
-              isComplete: false,
-              isCurrent: false,
-            },
-            children: [],
-          },
-          isComplete: false,
-          currentGoalId: null,
-        },
-        error: `Session not found: ${sessionId}`,
-      };
+      return { success: false, proofTree: emptyProofTree(), error: `Session not found: ${sessionId}` };
     }
+    const failure = (error: string): ApplyTacticResponse => ({
+      success: false,
+      proofTree: this.getProofTree(sessionId) || emptyProofTree(),
+      error,
+    });
 
     try {
-      // Import tactic classes
-      const tactics = await import("@pie/tactics/tactics");
-      const { Location, Syntax } = await import("@pie/utils/locations");
-      const { Position } = await import("@scheme/transpiler/types/location");
-      const { Parser } = await import("@pie/parser/parser");
+      const { buildTacticFromParams } = await import("@pie/tactics/tactic-builder");
       const { stop } = await import("@pie/types/utils");
 
       // Set the current goal to the one the user dropped onto
       const pm = session.proofManager;
       if (pm.currentState) {
-        const goalSet = pm.currentState.setCurrentGoalById(goalId);
-        if (!goalSet) {
-          return {
-            success: false,
-            proofTree: this.getProofTree(sessionId) || emptyProofTree(),
-            error: `Goal not found: ${goalId}`,
-          };
+        if (!pm.currentState.setCurrentGoalById(goalId)) {
+          return failure(`Goal not found: ${goalId}`);
         }
-        // Check if goal is already complete
         if (pm.currentState.currentGoal.isComplete) {
-          return {
-            success: false,
-            proofTree: this.getProofTree(sessionId) || emptyProofTree(),
-            error: "Cannot apply tactic to a completed goal",
-          };
+          return failure("Cannot apply tactic to a completed goal");
         }
         // In the visual editor, users explicitly select which goal to work on,
         // so we reset pendingBranches. The "then block" requirement is for
@@ -630,263 +595,20 @@ const proofWorkerAPI: ProofWorkerAPI = {
         pm.currentState.pendingBranches = 0;
       }
 
-      // Create dummy location
-      const pos = new Position(1, 0);
-      const syntax = new Syntax(pos, pos, "");
-      const loc = new Location(syntax, false);
+      const built = buildTacticFromParams(tacticType, params);
+      if ("error" in built) return failure(built.error);
 
-      // Create tactic based on type
-      let tactic: InstanceType<typeof tactics.Tactic>;
+      const result = pm.applyTactic(built.tactic);
+      if (result instanceof stop) return failure(result.message.toString());
 
-      switch (tacticType) {
-        case "intro":
-          tactic = new tactics.IntroTactic(loc, params.variableName);
-          break;
-
-        case "exact":
-          if (!params.expression) {
-            return {
-              success: false,
-              proofTree: this.getProofTree(sessionId) || {
-                root: {
-                  goal: {
-                    id: "",
-                    type: "",
-                    context: [],
-                    isComplete: false,
-                    isCurrent: false,
-                  },
-                  children: [],
-                },
-                isComplete: false,
-                currentGoalId: null,
-              },
-              error: "exact tactic requires an expression parameter",
-            };
-          }
-          const exactTerm = Parser.parsePie(params.expression);
-          tactic = new tactics.ExactTactic(loc, exactTerm);
-          break;
-
-        case "exists":
-          if (!params.expression) {
-            return {
-              success: false,
-              proofTree: this.getProofTree(sessionId) || {
-                root: {
-                  goal: {
-                    id: "",
-                    type: "",
-                    context: [],
-                    isComplete: false,
-                    isCurrent: false,
-                  },
-                  children: [],
-                },
-                isComplete: false,
-                currentGoalId: null,
-              },
-              error: "exists tactic requires an expression parameter",
-            };
-          }
-          const existsValue = Parser.parsePie(params.expression);
-          tactic = new tactics.ExistsTactic(
-            loc,
-            existsValue,
-            params.variableName,
-          );
-          break;
-
-        case "split":
-          tactic = new tactics.SpiltTactic(loc); // Note: typo in original code
-          break;
-
-        case "left":
-          tactic = new tactics.LeftTactic(loc);
-          break;
-
-        case "right":
-          tactic = new tactics.RightTactic(loc);
-          break;
-
-        case "elimNat":
-        case "induction":
-          if (!params.variableName) {
-            return {
-              success: false,
-              proofTree: this.getProofTree(sessionId) || {
-                root: {
-                  goal: {
-                    id: "",
-                    type: "",
-                    context: [],
-                    isComplete: false,
-                    isCurrent: false,
-                  },
-                  children: [],
-                },
-                isComplete: false,
-                currentGoalId: null,
-              },
-              error: "elimNat tactic requires a target variable name",
-            };
-          }
-          tactic = new tactics.EliminateNatTactic(loc, params.variableName);
-          break;
-
-        case "elimList":
-          if (!params.variableName) {
-            return {
-              success: false,
-              proofTree: this.getProofTree(sessionId) || {
-                root: {
-                  goal: {
-                    id: "",
-                    type: "",
-                    context: [],
-                    isComplete: false,
-                    isCurrent: false,
-                  },
-                  children: [],
-                },
-                isComplete: false,
-                currentGoalId: null,
-              },
-              error: "elimList tactic requires a target variable name",
-            };
-          }
-          tactic = new tactics.EliminateListTactic(loc, params.variableName);
-          break;
-
-        case "elimEither":
-          if (!params.variableName) {
-            return {
-              success: false,
-              proofTree: this.getProofTree(sessionId) || {
-                root: {
-                  goal: {
-                    id: "",
-                    type: "",
-                    context: [],
-                    isComplete: false,
-                    isCurrent: false,
-                  },
-                  children: [],
-                },
-                isComplete: false,
-                currentGoalId: null,
-              },
-              error: "elimEither tactic requires a target variable name",
-            };
-          }
-          tactic = new tactics.EliminateEitherTactic(loc, params.variableName);
-          break;
-
-        case "elimAbsurd":
-          if (!params.variableName) {
-            return {
-              success: false,
-              proofTree: this.getProofTree(sessionId) || {
-                root: {
-                  goal: {
-                    id: "",
-                    type: "",
-                    context: [],
-                    isComplete: false,
-                    isCurrent: false,
-                  },
-                  children: [],
-                },
-                isComplete: false,
-                currentGoalId: null,
-              },
-              error: "elimAbsurd tactic requires a target variable name",
-            };
-          }
-          tactic = new tactics.EliminateAbsurdTactic(loc, params.variableName);
-          break;
-
-        default:
-          return {
-            success: false,
-            proofTree: this.getProofTree(sessionId) || emptyProofTree(),
-            error: `Unknown tactic type: ${tacticType}`,
-          };
-      }
-
-      // Apply the tactic
-      const result = session.proofManager.applyTactic(tactic);
-
-      if (result instanceof stop) {
-        return {
-          success: false,
-          proofTree: this.getProofTree(sessionId) || {
-            root: {
-              goal: {
-                id: "",
-                type: "",
-                context: [],
-                isComplete: false,
-                isCurrent: false,
-              },
-              children: [],
-            },
-            isComplete: false,
-            currentGoalId: null,
-          },
-          error: result.message.toString(),
-        };
-      }
-
-      console.log("[ProofWorker] Tactic applied successfully");
-
-      // Get updated proof tree
       const proofTree = this.getProofTree(sessionId);
       if (!proofTree) {
-        return {
-          success: false,
-          proofTree: {
-            root: {
-              goal: {
-                id: "",
-                type: "",
-                context: [],
-                isComplete: false,
-                isCurrent: false,
-              },
-              children: [],
-            },
-            isComplete: false,
-            currentGoalId: null,
-          },
-          error: "Failed to get proof tree after applying tactic",
-        };
+        return { success: false, proofTree: emptyProofTree(), error: "Failed to get proof tree after applying tactic" };
       }
-
-      return {
-        success: true,
-        proofTree,
-      };
+      return { success: true, proofTree };
     } catch (error) {
       console.error("[ProofWorker] Error applying tactic:", error);
-      return {
-        success: false,
-        proofTree: this.getProofTree(sessionId) || {
-          root: {
-            goal: {
-              id: "",
-              type: "",
-              context: [],
-              isComplete: false,
-              isCurrent: false,
-            },
-            children: [],
-          },
-          isComplete: false,
-          currentGoalId: null,
-        },
-        error: String(error),
-      };
+      return failure(String(error));
     }
   },
 
