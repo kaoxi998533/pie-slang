@@ -7,7 +7,7 @@ import { Context, SerializableContext } from "../utils/context";
 import { go, stop, Perhaps, Message } from "../types/utils";
 import { alphaEquiv } from "../utils/alpha-eqv";
 import { readBack } from "../evaluator/utils";
-import { todoQueue } from "../solver/todo-solver";
+import { todoQueue } from "../solver/todo-queue";
 
 
 type What = 'definition'

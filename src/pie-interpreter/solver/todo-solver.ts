@@ -3,11 +3,9 @@
 // It won't work in browser/worker context. Functions will throw errors if called in browser.
 
 import { Parser } from "../parser/parser";
+import type { TodoInfo } from "./todo-queue";
 import { stop } from "../types/utils";
-import { Location } from "../utils/locations";
-import { Context, readBackContext } from "../utils/context";
-import { Value } from "../types/value";
-import { Renaming } from "../typechecker/utils";
+import { readBackContext } from "../utils/context";
 
 // Check if we're in Node.js environment (not browser/worker)
 const isNodeEnv = typeof process !== 'undefined' &&
@@ -56,27 +54,10 @@ function ensureClient() {
   return genAI;
 }
 
+export { todoQueue, addTodo, clearQueue, type TodoInfo } from "./todo-queue";
+
 // Cache for project context string (in-memory)
 let cachedProjectContext: string | null = null;
-
-export interface TodoInfo {
-  location: Location;
-  context: Context;
-  expectedType: Value;
-  renaming: Renaming;
-  name?: string;
-}
-
-// The todoQueue is safe in any context - it's just an array
-export const todoQueue: TodoInfo[] = [];
-
-export function addTodo(todo: TodoInfo) {
-  todoQueue.push(todo);
-}
-
-export function clearQueue() {
-  todoQueue.length = 0;
-}
 
 export function clearCache() {
   cachedProjectContext = null;
