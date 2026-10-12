@@ -4,7 +4,7 @@
 import { chatComplete, type ChatAccess, type ChatModelConfig } from "./openai-compatible";
 import type { ContextEntry, FailedAttempt, ProofStateInput, TacticPrediction, TacticPredictor } from "../types";
 
-export class ChatTacticPredictor implements TacticPredictor {
+export class GeneralLlmPredictor implements TacticPredictor {
   constructor(
     private readonly config: ChatModelConfig,
     private readonly access: ChatAccess,

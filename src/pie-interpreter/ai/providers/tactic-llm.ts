@@ -8,7 +8,7 @@ import { loggedAiFetch } from "../../solver/ai-call-log";
 import { abortableDelay, withTimeout } from "../abort";
 import type { FailedAttempt, ProofStateInput, TacticPrediction, TacticPredictor } from "../types";
 
-export interface TacticServerOptions {
+export interface TacticLlmOptions {
   /** Server base URL: a local serve.py, the proxy, or a Runpod endpoint (…/v2/<id>). */
   url: string;
   /** Bearer token; only sent to Runpod. */
@@ -30,10 +30,10 @@ interface PredictOutput {
 const DEFAULT_TIMEOUT_MS = 180_000;
 const DEFAULT_POLL_INTERVAL_MS = 2_000;
 
-export class TacticServerPredictor implements TacticPredictor {
+export class TacticLlmPredictor implements TacticPredictor {
   private readonly url: string;
 
-  constructor(private readonly options: TacticServerOptions) {
+  constructor(private readonly options: TacticLlmOptions) {
     this.url = options.url.trim().replace(/\/+$/, "");
   }
 

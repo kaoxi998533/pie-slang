@@ -1,8 +1,8 @@
 import 'jest';
 import { jest } from '@jest/globals';
 import { proofStateFromEntries, formatProofStateText } from '../ai/proof-state-input';
-import { TacticServerPredictor } from '../ai/providers/tactic-server';
-import { ChatTacticPredictor, buildTacticPrompt, extractTactic } from '../ai/providers/chat-predictor';
+import { TacticLlmPredictor } from '../ai/providers/tactic-llm';
+import { GeneralLlmPredictor, buildTacticPrompt, extractTactic } from '../ai/providers/general-llm-predictor';
 import { chatComplete, type ChatModelConfig } from '../ai/providers/openai-compatible';
 import type { ProofStateInput } from '../ai/types';
 
@@ -60,10 +60,10 @@ describe('proofStateFromEntries', () => {
   });
 });
 
-describe('TacticServerPredictor', () => {
+describe('TacticLlmPredictor', () => {
   it('posts the proof state to {url}/predict for serve.py and the proxy', async () => {
     const fetchMock = mockFetch(json({ tactic: ' elim-Nat n ', tactic_head: 'elim-Nat', category: 'elimination' }));
-    const prediction = await new TacticServerPredictor({ url: 'http://localhost:8000/' }).predict(state);
+    const prediction = await new TacticLlmPredictor({ url: 'http://localhost:8000/' }).predict(state);
     expect(prediction).toEqual({ tactic: 'elim-Nat n', tacticHead: 'elim-Nat', category: 'elimination' });
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('http://localhost:8000/predict');
@@ -76,7 +76,7 @@ describe('TacticServerPredictor', () => {
       json({ id: 'job-1', status: 'IN_QUEUE' }),
       json({ id: 'job-1', status: 'COMPLETED', output: { tactic: 'intro n' } }),
     );
-    const predictor = new TacticServerPredictor({
+    const predictor = new TacticLlmPredictor({
       url: 'https://api.runpod.ai/v2/abc/runsync',
       apiKey: 'rpa_test',
       pollIntervalMs: 1,
@@ -95,13 +95,13 @@ describe('TacticServerPredictor', () => {
 
   it('rejects failed Runpod jobs, HTTP errors and missing tactics', async () => {
     mockFetch(json({ id: 'job-1', status: 'FAILED' }));
-    await expect(new TacticServerPredictor({ url: 'https://api.runpod.ai/v2/abc' }).predict(state))
+    await expect(new TacticLlmPredictor({ url: 'https://api.runpod.ai/v2/abc' }).predict(state))
       .rejects.toThrow('did not finish');
     mockFetch(json({}, 502));
-    await expect(new TacticServerPredictor({ url: 'http://localhost:8000' }).predict(state))
+    await expect(new TacticLlmPredictor({ url: 'http://localhost:8000' }).predict(state))
       .rejects.toThrow('HTTP 502');
     mockFetch(json({ raw_output: '' }));
-    await expect(new TacticServerPredictor({ url: 'http://localhost:8000' }).predict(state))
+    await expect(new TacticLlmPredictor({ url: 'http://localhost:8000' }).predict(state))
       .rejects.toThrow('no tactic');
   });
 
@@ -109,7 +109,7 @@ describe('TacticServerPredictor', () => {
     mockFetch((_url, init) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
     }));
-    await expect(new TacticServerPredictor({ url: 'http://localhost:8000', timeoutMs: 5 }).predict(state))
+    await expect(new TacticLlmPredictor({ url: 'http://localhost:8000', timeoutMs: 5 }).predict(state))
       .rejects.toThrow('timed out');
   });
 
@@ -119,7 +119,7 @@ describe('TacticServerPredictor', () => {
       controller.abort();
       return json({ id: 'job-1', status: 'IN_PROGRESS' });
     });
-    await expect(new TacticServerPredictor({ url: 'https://api.runpod.ai/v2/abc', pollIntervalMs: 10_000 })
+    await expect(new TacticLlmPredictor({ url: 'https://api.runpod.ai/v2/abc', pollIntervalMs: 10_000 })
       .predict(state, [], controller.signal)).rejects.toThrow('Aborted');
   });
 });
@@ -158,10 +158,10 @@ describe('chatComplete', () => {
   });
 });
 
-describe('ChatTacticPredictor', () => {
+describe('GeneralLlmPredictor', () => {
   it('includes failed attempts in the prompt and extracts a bare tactic', async () => {
     const fetchMock = mockFetch(answer('```\nexact (same n)\n```'));
-    const predictor = new ChatTacticPredictor(chatConfig, { apiKey: 'k' });
+    const predictor = new GeneralLlmPredictor(chatConfig, { apiKey: 'k' });
     const prediction = await predictor.predict(state, [{ tactic: 'intro x', error: 'Not a Π type' }]);
     expect(prediction).toEqual({ tactic: 'exact (same n)' });
     const prompt = JSON.parse(fetchMock.mock.calls[0][1]?.body as string).messages[0].content as string;

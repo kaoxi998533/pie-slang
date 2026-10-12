@@ -15,9 +15,8 @@ import {
   type HintResponse,
   type HintRequest,
   type ScanFileResponse,
-  TACTIC_REQUIREMENTS,
 } from "@pie/protocol";
-import type { ProofStateInput } from "@pie/ai/types";
+import type { HintPipeline } from "@pie/ai/hint-pipeline";
 
 console.log("[ProofWorker] Worker script starting...");
 
@@ -63,18 +62,18 @@ interface ProofSession {
 const sessions = new Map<string, ProofSession>();
 
 // ============================================
-// LoRA prediction cache
+// Hint pipeline (holds the per-goal Tactic LLM prediction cache)
 // ============================================
 
-interface LoraPrediction {
-  tactic: string;
-  tacticHead: string;
-  category: string;
-  validated: boolean;
-}
+let hintPipeline: HintPipeline | null = null;
 
-/** Cache of validated LoRA predictions, keyed by goalId */
-const loraPredictions = new Map<string, LoraPrediction>();
+async function getHintPipeline(): Promise<HintPipeline> {
+  if (!hintPipeline) {
+    const { HintPipeline } = await import("@pie/ai/hint-pipeline");
+    hintPipeline = new HintPipeline();
+  }
+  return hintPipeline;
+}
 
 // ============================================
 // Shared helpers
@@ -317,8 +316,8 @@ const proofWorkerAPI: ProofWorkerAPI = {
   ): Promise<StartSessionResponse> {
     console.log("[ProofWorker] startSession() called for:", claimName);
 
-    // Clear stale LoRA prediction cache from previous sessions
-    loraPredictions.clear();
+    // Clear stale Tactic LLM predictions from previous sessions
+    hintPipeline?.clear();
 
     try {
       // Dynamically import Pie modules
@@ -942,107 +941,22 @@ const proofWorkerAPI: ProofWorkerAPI = {
         name: c.name,
         type: c.type,
       }));
-
-      // One proof state for both models: the Tactic LLM request body, and the
-      // same layout as text for the General LLM.
-      const { proofStateFromEntries, formatProofStateText } = await import("@pie/ai/proof-state-input");
-      const proofState = proofStateFromEntries(
-        goal.goal.type,
-        goal.goal.context,
-        [...session.globalDefinitions, ...session.globalTheorems],
-        session.claimName,
-      );
-      const proofStateText = formatProofStateText(proofState);
-
-      // ── LoRA path: predict → validate → cache → DeepSeek explain ──
-
-      // Try to get LoRA prediction (only on first hint request for this goal)
-      let loraPrediction: LoraPrediction | undefined =
-        loraPredictions.get(request.goalId);
-
-      if (!loraPrediction && request.loraServerUrl) {
-        loraPrediction = (await fetchAndValidateLoraPrediction(
-          request.loraServerUrl,
-          proofState,
-          request.loraApiKey,
-        )) ?? undefined;
-        if (loraPrediction) {
-          loraPredictions.set(request.goalId, loraPrediction);
-        }
-      }
-
-      const generalLlm = { apiKey: request.apiKey, proxyUrl: request.generalLlmProxyUrl };
-      const { hasGeneralLlm } = await import("@pie/solver/deepseek-client");
-
-      // If we have a validated LoRA prediction, use DeepSeek to explain it
-      if (loraPrediction?.validated && hasGeneralLlm(generalLlm)) {
-        try {
-          const { explainTactic } = await import(
-            "@pie/solver/hint-generator"
-          );
-          const explainRequest = {
-            predictedTactic: loraPrediction.tactic,
-            tacticCategory: loraPrediction.category,
-            goalType: goal.goal.type,
-            context,
-            level: request.currentLevel,
-            proofStateText,
-          };
-          const hint = await explainTactic(generalLlm, explainRequest);
-          const finalHint = { ...hint, source: "lora" as const };
-          return finalHint;
-        } catch {
-          // Fall through to LoRA-without-DeepSeek path
-        }
-      }
-
-      // If we have a validated LoRA prediction but no DeepSeek API key (or DeepSeek failed),
-      // provide a simple structured hint from the prediction using the built-in fallback
-      if (loraPrediction?.validated) {
-        const { explainTactic } = await import("@pie/solver/hint-generator");
-        const explainRequest = {
-          predictedTactic: loraPrediction.tactic,
-          tacticCategory: loraPrediction.category,
-          goalType: goal.goal.type,
-          context,
-          level: request.currentLevel,
-          proofStateText,
-        };
-        const hint = await explainTactic("", explainRequest);
-        return { ...hint, source: "lora" };
-      }
-
-      // ── Legacy path: DeepSeek-only or rule-based ──
-
-      const hintRequest = {
-        goalType: goal.goal.type,
-        context,
-        availableTactics: (
-          Object.keys(TACTIC_REQUIREMENTS) as TacticType[]
-        ).filter((t) => t !== "todo"),
-        currentLevel: request.currentLevel,
+      const { proofStateFromEntries } = await import("@pie/ai/proof-state-input");
+      const pipeline = await getHintPipeline();
+      return await pipeline.getHint({
+        goalId: request.goalId,
+        level: request.currentLevel,
         previousHint: request.previousHint,
-      };
-
-      const { generateProgressiveHint, generateRuleBasedHint } =
-        await import("@pie/solver/hint-generator");
-
-      // Try AI-powered hint if API key is provided
-      if (hasGeneralLlm(generalLlm)) {
-        try {
-          const hint = await generateProgressiveHint(
-            generalLlm,
-            hintRequest,
-          );
-          return { ...hint, source: "deepseek" };
-        } catch {
-          // Preserve the rule fallback without logging provider error contents.
-        }
-      }
-
-      // Fallback to rule-based hints
-      const hint = generateRuleBasedHint(hintRequest);
-      return { ...hint, source: "rule-based" };
+        context,
+        proofState: proofStateFromEntries(
+          goal.goal.type,
+          context,
+          [...session.globalDefinitions, ...session.globalTheorems],
+          session.claimName,
+        ),
+        tacticLlm: { url: request.loraServerUrl, apiKey: request.loraApiKey },
+        generalLlm: { apiKey: request.apiKey, proxyUrl: request.generalLlmProxyUrl },
+      });
     } catch (error) {
       return {
         level: request.currentLevel,
@@ -1052,65 +966,6 @@ const proofWorkerAPI: ProofWorkerAPI = {
     }
   },
 };
-
-/**
- * Fetch a tactic prediction from the Tactic LLM (local serve.py, the proxy, or
- * Runpod serverless) and validate it by parsing the tactic string.
- *
- * Returns null if the server is unreachable or the prediction is invalid.
- */
-async function fetchAndValidateLoraPrediction(
-  loraServerUrl: string,
-  proofState: ProofStateInput,
-  loraApiKey?: string,
-): Promise<LoraPrediction | null> {
-  // 1. Fetch prediction from the Tactic LLM
-  let tactic: string;
-  let tacticHead: string;
-  let category: string;
-
-  try {
-    const { TacticServerPredictor } = await import("@pie/ai/providers/tactic-server");
-    const prediction = await new TacticServerPredictor({
-      url: loraServerUrl,
-      apiKey: loraApiKey,
-    }).predict(proofState);
-    tactic = prediction.tactic;
-    tacticHead = prediction.tacticHead ?? "";
-    category = prediction.category ?? "unknown";
-
-    // Sanitize: if the model produced multi-line output or a very long
-    // "exact" expression (full proof term), it's not a useful single-step
-    // tactic hint. Reject it so we fall back to DeepSeek.
-    if (tactic.includes("\n") || tactic.length > 100) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-
-  // 2. Validate by parsing the tactic string.
-  //    We verify the tactic parses correctly and has a recognized type.
-  //    Full type-checking (dry-run) would require cloning the proof state,
-  //    which ProofManager doesn't support. Parse validation catches most
-  //    LoRA errors (malformed output, unknown tactic names).
-  let validated = false;
-  try {
-    const { schemeParse, Parser } = await import("@pie/parser/parser");
-
-    // Parse the tactic string
-    const wrapped = tactic.trim().startsWith("(") ? tactic : `(${tactic})`;
-    const parsed = schemeParse(wrapped);
-    Parser.parseToTactics(parsed[0]);
-
-    // If parsing succeeded, the tactic is structurally valid
-    validated = true;
-  } catch {
-    validated = false;
-  }
-
-  return { tactic, tacticHead, category, validated };
-}
 
 /**
  * Helper to find a goal by ID in the proof tree
