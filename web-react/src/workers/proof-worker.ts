@@ -1,4 +1,3 @@
-import { loggedAiFetch } from "@pie/solver/ai-call-log";
 import * as Comlink from "comlink";
 import { nanoid } from "nanoid";
 import {
@@ -18,6 +17,7 @@ import {
   type ScanFileResponse,
   TACTIC_REQUIREMENTS,
 } from "@pie/protocol";
+import type { ProofStateInput } from "@pie/ai/types";
 
 console.log("[ProofWorker] Worker script starting...");
 
@@ -943,30 +943,16 @@ const proofWorkerAPI: ProofWorkerAPI = {
         type: c.type,
       }));
 
-      // Build proof state text matching LoRA training format for DeepSeek context
-      const globalNames = new Set<string>();
-      const defLines: string[] = [];
-      for (const entry of [
-        ...session.globalDefinitions,
-        ...session.globalTheorems,
-      ]) {
-        if (!globalNames.has(entry.name)) {
-          globalNames.add(entry.name);
-          defLines.push(`  ${entry.name} : ${entry.type}`);
-        }
-      }
-      const localLines = context
-        .filter(
-          (c) => !globalNames.has(c.name) && c.name !== session.claimName,
-        )
-        .map((c) => `  ${c.name} : ${c.type}`);
-      const proofStateParts: string[] = [];
-      if (defLines.length > 0)
-        proofStateParts.push("Definitions:\n" + defLines.join("\n"));
-      if (localLines.length > 0)
-        proofStateParts.push("Local variables:\n" + localLines.join("\n"));
-      proofStateParts.push(`Goal: ${goal.goal.type}`);
-      const proofStateText = proofStateParts.join("\n");
+      // One proof state for both models: the Tactic LLM request body, and the
+      // same layout as text for the General LLM.
+      const { proofStateFromEntries, formatProofStateText } = await import("@pie/ai/proof-state-input");
+      const proofState = proofStateFromEntries(
+        goal.goal.type,
+        goal.goal.context,
+        [...session.globalDefinitions, ...session.globalTheorems],
+        session.claimName,
+      );
+      const proofStateText = formatProofStateText(proofState);
 
       // ── LoRA path: predict → validate → cache → DeepSeek explain ──
 
@@ -977,11 +963,7 @@ const proofWorkerAPI: ProofWorkerAPI = {
       if (!loraPrediction && request.loraServerUrl) {
         loraPrediction = (await fetchAndValidateLoraPrediction(
           request.loraServerUrl,
-          request.sessionId,
-          request.goalId,
-          goal.goal.type,
-          goal.goal.context,
-          session,
+          proofState,
           request.loraApiKey,
         )) ?? undefined;
         if (loraPrediction) {
@@ -1072,144 +1054,30 @@ const proofWorkerAPI: ProofWorkerAPI = {
 };
 
 /**
- * Call a Runpod serverless endpoint and return the handler's `output` object
- * (which follows the same shape as the local /predict response), or null.
- *
- * Runpod protocol: POST {base}/runsync with `Authorization: Bearer <key>` and a
- * body of `{ input: <requestBody> }`. When a worker is warm this returns
- * `{ status: "COMPLETED", output: {...} }` in ~1-2s. On a cold start the 7B
- * model reload can exceed runsync's ~60s ceiling, in which case the response is
- * `{ id, status: "IN_PROGRESS" }` and we poll {base}/status/{id} until done.
- *
- * `url` may be given as the endpoint base (…/v2/<id>) or with a trailing
- * /runsync or /run — both are normalized here.
- */
-async function fetchRunpodPrediction(
-  url: string,
-  input: unknown,
-  apiKey: string | undefined,
-): Promise<{ tactic?: string; tactic_head?: string; category?: string } | null> {
-  const base = url.replace(/\/(runsync|run|status)$/, "");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
-
-  const syncResp = await loggedAiFetch({ provider: 'runpod', operation: 'prediction' }, `${base}/runsync`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ input }),
-  });
-  if (!syncResp.ok) {
-    return null;
-  }
-
-  let job: { id?: string; status?: string; output?: { tactic?: string; tactic_head?: string; category?: string } } =
-    await syncResp.json();
-
-  // Poll for completion if the job did not finish within runsync's window.
-  const deadlineMs = Date.now() + 180_000; // 3 min cap covers a cold 7B reload
-  while (job.status !== "COMPLETED") {
-    if (job.status === "FAILED" || job.status === "CANCELLED" || job.status === "TIMED_OUT") {
-      return null;
-    }
-    if (!job.id) {
-      return null;
-    }
-    if (Date.now() > deadlineMs) {
-      return null;
-    }
-    await new Promise((r) => setTimeout(r, 2000));
-    const st = await loggedAiFetch({ provider: 'runpod', operation: 'poll' }, `${base}/status/${job.id}`, { headers });
-    if (!st.ok) {
-      return null;
-    }
-    job = await st.json();
-  }
-  return job.output ?? null;
-}
-
-/**
- * Fetch a tactic prediction from the LoRA server (local serve.py or Runpod
- * serverless) and validate it by parsing the tactic against the proof state.
+ * Fetch a tactic prediction from the Tactic LLM (local serve.py, the proxy, or
+ * Runpod serverless) and validate it by parsing the tactic string.
  *
  * Returns null if the server is unreachable or the prediction is invalid.
  */
 async function fetchAndValidateLoraPrediction(
   loraServerUrl: string,
-  _sessionId: string,
-  _goalId: string,
-  goalType: string,
-  goalContext: ContextEntry[],
-  session: ProofSession,
+  proofState: ProofStateInput,
   loraApiKey?: string,
 ): Promise<LoraPrediction | null> {
-  // 1. Fetch prediction from LoRA server
+  // 1. Fetch prediction from the Tactic LLM
   let tactic: string;
   let tacticHead: string;
   let category: string;
 
   try {
-    const url = loraServerUrl.replace(/\/+$/, "");
-
-    // Global context: definitions + theorems from session (deduplicated).
-    // Types are already sugared via sugarType in startSession.
-    const globalNames = new Set<string>();
-    const globalCtx: Array<{ name: string; type: string }> = [];
-    for (const entry of [
-      ...session.globalDefinitions,
-      ...session.globalTheorems,
-    ]) {
-      if (!globalNames.has(entry.name)) {
-        globalNames.add(entry.name);
-        globalCtx.push({ name: entry.name, type: entry.type });
-      }
-    }
-
-    // Local context: only entries NOT in global context and NOT the claim being proved.
-    // Types are now sugared at the source (proofstate.ts uses sugarType).
-    const localCtx = goalContext
-      .filter(
-        (c) => !globalNames.has(c.name) && c.name !== session.claimName,
-      )
-      .map((c) => ({ name: c.name, type: c.type }));
-
-    const requestBody = {
-      goal: goalType,
-      globalContext: globalCtx,
-      localContext: localCtx,
-    };
-
-    // Runpod serverless (api.runpod.ai) speaks a different protocol than the
-    // local serve.py: POST .../runsync with a Bearer token, the body wrapped in
-    // { input }, and the tactic returned under `output`. A local server exposes
-    // POST /predict directly. Detect by host.
-    let data: {
-      tactic?: string;
-      tactic_head?: string;
-      category?: string;
-    } | null;
-
-    if (url.includes("runpod.ai")) {
-      data = await fetchRunpodPrediction(url, requestBody, loraApiKey);
-      if (!data) return null;
-    } else {
-      const resp = await loggedAiFetch({ provider: 'lora', operation: 'prediction' }, `${url}/predict`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!resp.ok) {
-        return null;
-      }
-
-      data = await resp.json();
-    }
-    if (!data || typeof data.tactic !== "string") {
-      return null;
-    }
-    tactic = data.tactic.trim();
-    tacticHead = data.tactic_head ?? "";
-    category = data.category ?? "unknown";
+    const { TacticServerPredictor } = await import("@pie/ai/providers/tactic-server");
+    const prediction = await new TacticServerPredictor({
+      url: loraServerUrl,
+      apiKey: loraApiKey,
+    }).predict(proofState);
+    tactic = prediction.tactic;
+    tacticHead = prediction.tacticHead ?? "";
+    category = prediction.category ?? "unknown";
 
     // Sanitize: if the model produced multi-line output or a very long
     // "exact" expression (full proof term), it's not a useful single-step

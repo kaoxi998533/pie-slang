@@ -1,5 +1,6 @@
 import 'jest';
 import { parseTacticString, TacticPredictor, runTacticAgent } from '../solver/tactic-agent';
+import type { FailedAttempt, ProofStateInput } from '../ai/types';
 import { evaluatePieAndGetContext } from '../main';
 import { Context } from '../utils/context';
 
@@ -97,7 +98,7 @@ describe('runTacticAgent', () => {
 
     // Mock predictor that returns the right tactic
     const mockPredictor: TacticPredictor = {
-      predict: async () => 'exact (same 0)',
+      predict: async () => ({ tactic: 'exact (same 0)' }),
     };
 
     const result = await runTacticAgent(ctx, 'test-eq', mockPredictor, { verbose: false });
@@ -132,7 +133,7 @@ describe('runTacticAgent', () => {
     const tactics = ['exists 0 half', 'exact (same 0)'];
     let callIdx = 0;
     const mockPredictor: TacticPredictor = {
-      predict: async () => tactics[callIdx++],
+      predict: async () => ({ tactic: tactics[callIdx++] }),
     };
 
     const result = await runTacticAgent(ctx, 'zero-is-even', mockPredictor, { verbose: false });
@@ -150,9 +151,9 @@ describe('runTacticAgent', () => {
       predict: async () => {
         callCount++;
         // First attempt: wrong tactic
-        if (callCount === 1) return 'intro n';
+        if (callCount === 1) return { tactic: 'intro n' };
         // Second attempt: correct
-        return 'exact (same 0)';
+        return { tactic: 'exact (same 0)' };
       },
     };
 
@@ -167,7 +168,7 @@ describe('runTacticAgent', () => {
     const ctx = getContext(code);
 
     const mockPredictor: TacticPredictor = {
-      predict: async () => 'exact 0',
+      predict: async () => ({ tactic: 'exact 0' }),
     };
 
     const result = await runTacticAgent(ctx, 'nonexistent', mockPredictor, { verbose: false });
@@ -181,7 +182,7 @@ describe('runTacticAgent', () => {
 
     // Always return wrong tactic
     const mockPredictor: TacticPredictor = {
-      predict: async () => 'intro n',
+      predict: async () => ({ tactic: 'intro n' }),
     };
 
     const result = await runTacticAgent(ctx, 'test-eq', mockPredictor, {
@@ -190,5 +191,52 @@ describe('runTacticAgent', () => {
     });
     expect(result.success).toBe(false);
     expect(result.retries).toBeGreaterThan(0);
+  });
+
+  it('sends the structured proof state and the kernel errors of failed attempts', async () => {
+    const code = `
+(claim x Nat)
+(define x 0)
+(claim test-eq (= Nat x x))
+`;
+    const ctx = getContext(code);
+
+    const calls: Array<{ state: ProofStateInput; failed: FailedAttempt[] }> = [];
+    const mockPredictor: TacticPredictor = {
+      predict: async (state, failed = []) => {
+        calls.push({ state, failed: [...failed] });
+        return { tactic: calls.length === 1 ? 'intro n' : 'exact (same x)' };
+      },
+    };
+
+    const result = await runTacticAgent(ctx, 'test-eq', mockPredictor, { verbose: false });
+    expect(result.success).toBe(true);
+    // Definitions are unfolded in the goal, as in the training data
+    expect(calls[0].state.goal).toBe('(= Nat 0 0)');
+    expect(calls[0].state.globalContext).toContainEqual({ name: 'x', type: 'Nat' });
+    expect(calls[0].state.localContext).toEqual([]);
+    expect(calls[0].failed).toEqual([]);
+    expect(calls[1].failed).toHaveLength(1);
+    expect(calls[1].failed[0].tactic).toBe('intro n');
+    expect(calls[1].failed[0].error).not.toBe('');
+  });
+
+  it('stops when aborted', async () => {
+    const ctx = getContext(`(claim test-eq (= Nat 0 0))`);
+    const controller = new AbortController();
+    const mockPredictor: TacticPredictor = {
+      predict: async () => {
+        controller.abort();
+        return { tactic: 'intro n' };
+      },
+    };
+
+    const result = await runTacticAgent(ctx, 'test-eq', mockPredictor, {
+      verbose: false,
+      signal: controller.signal,
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Aborted');
+    expect(result.llmCalls).toBe(1);
   });
 });

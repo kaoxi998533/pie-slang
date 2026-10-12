@@ -3,11 +3,12 @@
  *
  * The agent loop:
  * 1. Start with global context + goal type
- * 2. Format prompt with context + goal (matching training data format)
- * 3. Call LLM to predict the next tactic
+ * 2. Serialize context + goal (the Tactic LLM's training data format)
+ * 3. Ask the predictor for the next tactic
  * 4. Parse the tactic string and apply it via ProofManager
  * 5. If success → check if proof complete; if not, get next goal → go to 2
- * 6. If type error → include error in prompt → retry from 3
+ * 6. If type error → record it as a failed attempt → retry from 3
+ *    (chat predictors read failed attempts; the greedy Tactic LLM ignores them)
  * 7. Repeat until proof complete or max retries exhausted
  */
 
@@ -20,6 +21,9 @@ import { Position } from '../../scheme-parser/transpiler/types/location';
 import { go, stop } from '../types/utils';
 import { serializeContext, serializeGoal } from '../tactics/training-data-extractor';
 import { Parser, schemeParse } from '../parser/parser';
+import type { FailedAttempt, ProofStateInput, TacticPredictor } from '../ai/types';
+
+export type { TacticPredictor } from '../ai/types';
 
 // ---------------------------------------------------------------------------
 // Tactic string parser — converts LLM output (toString format) to S-expression
@@ -56,94 +60,13 @@ export function parseTacticString(tacticStr: string): Tactic {
 }
 
 // ---------------------------------------------------------------------------
-// LLM Predictor interface — abstraction over different model backends
+// Proof state for the predictor — the Tactic LLM's training-data format
 // ---------------------------------------------------------------------------
 
-export interface TacticPredictor {
-  /**
-   * Given the current proof state (context + goal), predict the next tactic.
-   * Returns the raw tactic string (e.g., "intro n", "exact (same 0)").
-   */
-  predict(prompt: string): Promise<string>;
-}
-
-/**
- * HTTP-based predictor for a locally-served fine-tuned model.
- * Expects a POST endpoint that accepts { prompt: string } and returns { tactic: string }.
- */
-export class LocalModelPredictor implements TacticPredictor {
-  constructor(
-    private endpoint: string = 'http://localhost:8000/predict',
-  ) {}
-
-  async predict(prompt: string): Promise<string> {
-    const response = await fetch(this.endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt }),
-    });
-    if (!response.ok) {
-      throw new Error(`Model server error: ${response.status} ${response.statusText}`);
-    }
-    const data = await response.json() as { tactic: string };
-    return data.tactic.trim();
-  }
-}
-
-/**
- * Google Gemini-based predictor (for comparison / fallback).
- */
-export class GeminiPredictor implements TacticPredictor {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private genAI: any;
-
-  constructor(apiKey: string) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { GoogleGenAI } = require('@google/genai');
-    this.genAI = new GoogleGenAI({ apiKey });
-  }
-
-  async predict(prompt: string): Promise<string> {
-    const result = await this.genAI.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-    return (result.text || '').trim()
-      .replace(/^```[\w]*\n?/, '')
-      .replace(/\n?```$/, '')
-      .trim();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Prompt formatting — matches the training data format
-// ---------------------------------------------------------------------------
-
-function formatPrompt(
-  goal: Goal,
-  originalContext: Context,
-  errorHistory: string[] = [],
-): string {
+function proofStateFromGoal(goal: Goal, originalContext: Context): ProofStateInput {
   const { globalContext, localContext } = serializeContext(goal.context, originalContext);
-  const goalStr = serializeGoal(goal);
-
-  let prompt = `Predict the next tactic for the following proof state.
-
-Global context:
-${globalContext.map(e => `  ${e.name} : ${e.type}`).join('\n') || '  (empty)'}
-
-Local context:
-${localContext.map(e => `  ${e.name} : ${e.type}`).join('\n') || '  (empty)'}
-
-Goal: ${goalStr}
-
-Respond with ONLY the tactic (e.g., "intro n", "exact (same 0)", "ind-nat n", "symm").`;
-
-  if (errorHistory.length > 0) {
-    prompt += `\n\nPrevious attempts that failed:\n${errorHistory.map((e, i) => `  ${i + 1}. ${e}`).join('\n')}\nPlease try a different tactic.`;
-  }
-
-  return prompt;
+  const goalStr = serializeGoal(goal) ?? goal.type.readBackType(goal.context).prettyPrint();
+  return { goal: goalStr, globalContext, localContext };
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +94,8 @@ export interface AgentOptions {
   maxTotalCalls?: number;
   /** Log each step to console (default: true) */
   verbose?: boolean;
+  /** Stops the agent between steps and cancels the in-flight prediction */
+  signal?: AbortSignal;
 }
 
 /**
@@ -191,6 +116,7 @@ export async function runTacticAgent(
     maxRetriesPerGoal = 5,
     maxTotalCalls = 50,
     verbose = true,
+    signal,
   } = options;
 
   const result: AgentResult = {
@@ -230,7 +156,8 @@ export async function runTacticAgent(
     const currentGoal = (pm.currentState!.getCurrentGoal() as go<Goal>).result;
     log(`\nGoal: ${serializeGoal(currentGoal)}`);
 
-    let errorHistory: string[] = [];
+    const state = proofStateFromGoal(currentGoal, originalContext);
+    const failed: FailedAttempt[] = [];
     let goalSolved = false;
 
     for (let retry = 0; retry <= maxRetriesPerGoal; retry++) {
@@ -240,17 +167,20 @@ export async function runTacticAgent(
         return result;
       }
 
-      // Format prompt and call LLM
-      const prompt = formatPrompt(currentGoal, originalContext, errorHistory);
+      if (signal?.aborted) {
+        result.error = 'Aborted';
+        log(result.error);
+        return result;
+      }
       result.llmCalls++;
 
       let tacticStr: string;
       try {
-        tacticStr = await predictor.predict(prompt);
+        tacticStr = (await predictor.predict(state, failed, signal)).tactic.trim();
       } catch (e: unknown) {
+        if (signal?.aborted) continue;
         const msg = e instanceof Error ? e.message : String(e);
         log(`LLM call failed: ${msg}`);
-        errorHistory.push(`LLM error: ${msg}`);
         result.retries++;
         continue;
       }
@@ -263,7 +193,7 @@ export async function runTacticAgent(
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log(`Parse error: ${msg}`);
-        errorHistory.push(`"${tacticStr}" → parse error: ${msg}`);
+        failed.push({ tactic: tacticStr, error: `parse error: ${msg}` });
         result.retries++;
         continue;
       }
@@ -273,7 +203,7 @@ export async function runTacticAgent(
       if (applyResult instanceof stop) {
         const errMsg = applyResult.message.toString();
         log(`Tactic failed: ${errMsg}`);
-        errorHistory.push(`"${tacticStr}" → ${errMsg}`);
+        failed.push({ tactic: tacticStr, error: errMsg });
         result.retries++;
         continue;
       }
@@ -286,7 +216,9 @@ export async function runTacticAgent(
     }
 
     if (!goalSolved) {
-      result.error = `Failed to solve goal after ${maxRetriesPerGoal} retries: ${serializeGoal(currentGoal)}`;
+      result.error = signal?.aborted
+        ? 'Aborted'
+        : `Failed to solve goal after ${maxRetriesPerGoal} retries: ${serializeGoal(currentGoal)}`;
       log(result.error);
       return result;
     }
