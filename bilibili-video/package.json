@@ -1,0 +1,12 @@
+{
+  "name": "bilibili-video",
+  "private": true,
+  "description": "人生的分岔，可以数得清吗？—— 文字动画短片的渲染源码",
+  "scripts": {
+    "build": "./build.sh out 4",
+    "preview": "node preview.js out/preview"
+  },
+  "dependencies": {
+    "mathjax": "^3.2.2"
+  }
+}
