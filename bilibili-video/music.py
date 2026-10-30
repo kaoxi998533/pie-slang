@@ -45,17 +45,19 @@ def piano(m, vel):
     T = float(np.clip(9.0 * (220.0 / f0) ** 0.45, 2.5, 9.0))
     t = np.arange(int(T * SR)) / SR
     sig = np.zeros_like(t)
-    for k in range(1, 10):
+    for k in range(1, 15):
         fk = k * f0 * np.sqrt(1 + 0.0003 * k * k)
-        if fk > 9000:
+        if fk > 11000:
             break
-        amp = (1.0 / k ** 1.6) * (0.5 + vel) ** (0.35 * (k - 1))
-        tau = (T / (1.0 + 0.7 * (k - 1))) / 6.9
+        amp = (1.0 / k ** 1.15) * (0.5 + vel) ** (0.3 * (k - 1))
+        tau = (T / (1.0 + 0.45 * (k - 1))) / 6.9
         ph = rng.uniform(0, 2 * np.pi)
         for det in (-0.7, 0.7):
             sig += 0.5 * amp * np.sin(2 * np.pi * fk * 2 ** (det / 1200) * t + ph) * np.exp(-t / tau)
-    sig *= np.minimum(1.0, t / 0.005) * (0.55 * np.exp(-t / 0.5) + 0.45)
-    return sig * vel * 0.32
+    sig *= np.minimum(1.0, t / 0.004) * (0.55 * np.exp(-t / 0.5) + 0.45)
+    n = int(0.03 * SR)  # felt-hammer thump
+    sig[:n] += lfilter([1, -1], [1, -0.6], rng.standard_normal(n)) * np.exp(-np.arange(n) / (0.006 * SR)) * 0.05
+    return sig * vel * 0.26
 
 
 def pad(m, dur, att=3.0, rel=4.0, bright=0.22):
@@ -171,7 +173,7 @@ for a in accents:
 def make_ir(rt, seed):
     r = np.random.default_rng(seed)
     t = np.arange(int(rt * SR)) / SR
-    ir = lfilter([0.18], [1, -0.82], r.standard_normal(len(t))) * np.exp(-6.9 * t / rt)
+    ir = lfilter([0.4], [1, -0.6], r.standard_normal(len(t))) * np.exp(-6.9 * t / rt)
     ir = np.concatenate([np.zeros(int(0.025 * SR)), ir])
     return ir / np.sqrt(np.sum(ir ** 2))
 
