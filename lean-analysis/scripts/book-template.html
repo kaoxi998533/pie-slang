@@ -1,0 +1,784 @@
+<title>Lean 数学分析入门</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="一本可以运行的数学分析入门教科书：每个定义、定理与习题都是由 Lean 4 检查的代码。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script>
+  /* 字体样式表异步加载：Google Fonts 不可用时直接使用系统字体，不阻塞页面。 */
+  (function () {
+    var l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@400;600;900&family=STIX+Two+Text:ital,wght@0,400;0,600;1,400&display=swap';
+    document.head.appendChild(l);
+  })();
+</script>
+<style>
+/* Layout: a fixed chapter rail on the left and a ~68ch reading column; exercises are framed worksheets,
+   chapter numbers are cinnabar seal squares, Lean code reads like the editor's infoview. */
+:root {
+  --paper: #fafaf8;
+  --paper-2: #f1f2f5;
+  --paper-3: #e8eaf0;
+  --ink: #1b2130;
+  --ink-2: #4b5367;
+  --ink-3: #737b90;
+  --rule: #dcdfe6;
+  --accent: #2b4c9b;
+  --accent-ink: #ffffff;
+  --accent-soft: #e5eaf6;
+  --seal: #b23f2c;
+  --seal-soft: #f6e7e3;
+  --ok: #2c7a4d;
+  --ok-soft: #e2f0e7;
+  --warn-soft: #fbf1d9;
+  --tok-kw: #7a3e9d;
+  --tok-tac: #2b4c9b;
+  --tok-ty: #0f7a6c;
+  --tok-com: #6f7686;
+  --tok-num: #a2541c;
+  --tok-str: #2c7a4d;
+  --tok-op: #5b6274;
+  --tok-name: #1b2130;
+  --shadow: 0 1px 2px rgba(27, 33, 48, .06), 0 4px 16px rgba(27, 33, 48, .06);
+
+  --font-body: "STIX Two Text", "Noto Serif SC", "Songti SC", "SimSun", serif;
+  --font-head: "Noto Serif SC", "STIX Two Text", "Songti SC", serif;
+  --font-ui: "Noto Sans SC", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-code: "JetBrains Mono", "Noto Sans Mono", "Menlo", "Consolas", "Noto Sans SC", monospace;
+
+  --rail-w: 17.5rem;
+  --measure: 44rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #14171d; --paper-2: #1b1f27; --paper-3: #252a35; --ink: #e3e6ed; --ink-2: #a9afbd; --ink-3: #828a9c;
+    --rule: #2c323e; --accent: #93abed; --accent-ink: #11151c; --accent-soft: #222b44; --seal: #e48a73; --seal-soft: #37231f;
+    --ok: #7ec99c; --ok-soft: #1a3024; --warn-soft: #362d17;
+    --tok-kw: #d0a3ef; --tok-tac: #93abed; --tok-ty: #6fd3c2; --tok-com: #8a92a3; --tok-num: #e6a676; --tok-str: #7ec99c; --tok-op: #a9afbd; --tok-name: #e3e6ed;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #14171d; --paper-2: #1b1f27; --paper-3: #252a35; --ink: #e3e6ed; --ink-2: #a9afbd; --ink-3: #828a9c;
+  --rule: #2c323e; --accent: #93abed; --accent-ink: #11151c; --accent-soft: #222b44; --seal: #e48a73; --seal-soft: #37231f;
+  --ok: #7ec99c; --ok-soft: #1a3024; --warn-soft: #362d17;
+  --tok-kw: #d0a3ef; --tok-tac: #93abed; --tok-ty: #6fd3c2; --tok-com: #8a92a3; --tok-num: #e6a676; --tok-str: #7ec99c; --tok-op: #a9afbd; --tok-name: #e3e6ed;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 4.5rem; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.8;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--accent); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+code, pre { font-family: var(--font-code); }
+
+/* ---------- rail ---------- */
+#rail {
+  position: fixed; inset: 0 auto 0 0; width: var(--rail-w);
+  padding: calc(1.25rem + env(safe-area-inset-top, 0px)) 1rem calc(1rem + env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
+  border-right: 1px solid var(--rule);
+  background: var(--paper);
+  display: flex; flex-direction: column; gap: 1.25rem;
+  overflow-y: auto;
+  font-family: var(--font-ui);
+  z-index: 20;
+}
+.brand { display: flex; gap: .75rem; align-items: center; text-decoration: none; color: var(--ink); }
+.brand-mark {
+  flex: none; width: 2.5rem; height: 2.5rem; display: grid; place-items: center;
+  border: 2px solid var(--seal); color: var(--seal); border-radius: 4px;
+  font-family: "STIX Two Text", serif; font-style: italic; font-size: 1.5rem; line-height: 1;
+}
+.brand b { display: block; font-family: var(--font-head); font-weight: 900; font-size: 1.05rem; letter-spacing: .02em; line-height: 1.3; }
+.brand small { display: block; color: var(--ink-3); font-size: .78rem; line-height: 1.4; }
+
+.overall { font-size: .8rem; color: var(--ink-2); display: grid; gap: .4rem; }
+.overall .bar { height: 4px; border-radius: 2px; background: var(--paper-3); overflow: hidden; }
+.overall .bar i { display: block; height: 100%; background: var(--ok); width: 0; transition: width .3s ease; }
+
+#toc { display: grid; gap: 2px; }
+.toc-label { font-size: .72rem; letter-spacing: .12em; color: var(--ink-3); margin: 0 0 .35rem .5rem; }
+.toc-item {
+  display: grid; grid-template-columns: 1.6rem 1fr auto; align-items: center; gap: .5rem;
+  padding: .45rem .5rem; border-radius: 6px; text-decoration: none; color: var(--ink-2); font-size: .9rem; line-height: 1.35;
+}
+.toc-item:hover { background: var(--paper-2); color: var(--ink); }
+.toc-item[aria-current="page"] { background: var(--accent-soft); color: var(--ink); font-weight: 500; }
+.toc-num { font-family: "STIX Two Text", serif; font-size: 1rem; color: var(--seal); text-align: center; font-variant-numeric: tabular-nums; }
+.toc-prog { font-size: .72rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.toc-prog.full { color: var(--ok); font-weight: 700; }
+.rail-foot { margin-top: auto; font-size: .78rem; color: var(--ink-3); display: grid; gap: .3rem; line-height: 1.5; }
+.rail-foot a { color: var(--ink-2); }
+
+/* ---------- top bar (narrow screens) ---------- */
+#topbar { display: none; }
+#scrim { display: none; }
+
+/* ---------- main ---------- */
+main {
+  margin-left: var(--rail-w);
+  padding-block: 2.5rem 6rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.col { max-width: var(--measure); margin: 0 auto; }
+
+/* chapter header */
+.ch-head { display: grid; grid-template-columns: auto 1fr; gap: 1.25rem; align-items: center; margin-bottom: 1.5rem; }
+.seal {
+  width: 4.25rem; height: 4.25rem; display: grid; place-items: center;
+  border: 2.5px solid var(--seal); border-radius: 6px; color: var(--seal);
+  font-family: "STIX Two Text", serif; font-size: 2.4rem; line-height: 1; font-variant-numeric: lining-nums;
+}
+.ch-eyebrow { font-family: var(--font-ui); font-size: .8rem; letter-spacing: .14em; color: var(--seal); margin: 0; }
+.ch-title { font-family: var(--font-head); font-weight: 900; font-size: clamp(1.8rem, 4.5vw, 2.5rem); line-height: 1.25; margin: 0; text-wrap: balance; letter-spacing: .01em; }
+.ch-meta {
+  display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center;
+  font-family: var(--font-ui); font-size: .85rem; color: var(--ink-2);
+  padding: .75rem 0; border-block: 1px solid var(--rule); margin-bottom: 2rem;
+}
+.ch-meta .grow { flex: 1; }
+
+.prose h2 { font-family: var(--font-head); font-weight: 700; font-size: 1.45rem; line-height: 1.4; margin: 2.75rem 0 .75rem; text-wrap: balance; }
+.prose h3 { font-family: var(--font-head); font-weight: 600; font-size: 1.15rem; line-height: 1.5; margin: 2.25rem 0 .5rem; text-wrap: balance; }
+.prose h4 { font-family: var(--font-head); font-weight: 600; font-size: 1.02rem; margin: 1.5rem 0 .4rem; }
+.prose p, .prose li { text-align: justify; text-justify: inter-character; }
+.prose p { margin: .75rem 0; }
+.prose ul, .prose ol { padding-left: 1.4rem; margin: .75rem 0; }
+.prose li { margin: .3rem 0; }
+.prose li::marker { color: var(--ink-3); }
+.prose strong { font-weight: 600; color: var(--ink); }
+.prose code, .ex-name, .inline-code {
+  font-size: .86em; background: var(--paper-2); border: 1px solid var(--rule);
+  padding: .05em .35em; border-radius: 4px; white-space: break-spaces; word-break: break-word;
+}
+.math { font-family: "STIX Two Text", "Cambria Math", serif; white-space: nowrap; }
+.math sub, .math sup { font-size: .72em; line-height: 0; }
+.math-block .math { white-space: normal; }
+.math-block { overflow-x: auto; margin: 1rem 0; text-align: center; }
+.math-block math { font-size: 1.1em; }
+
+.callout { margin: 1.25rem 0; padding: .9rem 1.1rem; border-radius: 0 8px 8px 0; border-left: 3px solid var(--rule); background: var(--paper-2); }
+.callout > :first-child { margin-top: 0; }
+.callout > :last-child { margin-bottom: 0; }
+.callout-def { border-left-color: var(--accent); background: var(--accent-soft); }
+.callout-thm { border-left-color: var(--seal); background: var(--seal-soft); }
+.callout-thm strong:first-child { color: var(--seal); }
+.callout-def strong:first-child { color: var(--accent); }
+.callout-note { border-left-color: var(--ink-3); }
+.callout-example { border-left-color: var(--tok-ty); }
+
+.table-wrap { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--rule); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: .92rem; line-height: 1.55; }
+th, td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-ui); font-weight: 500; font-size: .8rem; letter-spacing: .06em; color: var(--ink-2); background: var(--paper-2); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+/* code */
+.code, .exercise { margin: 1.25rem 0; }
+.code { border: 1px solid var(--rule); border-radius: 8px; background: var(--paper-2); overflow: hidden; }
+.code-bar {
+  display: flex; align-items: center; gap: .25rem; padding: .3rem .4rem .3rem .8rem;
+  border-bottom: 1px solid var(--rule); font-family: var(--font-ui); font-size: .75rem; color: var(--ink-3);
+}
+.code-bar .lbl { letter-spacing: .1em; }
+.spacer { flex: 1; }
+pre.lean, pre.snippet {
+  margin: 0; padding: .9rem 1rem; overflow-x: auto; font-size: .84rem; line-height: 1.65; tab-size: 2;
+  background: var(--paper-2); color: var(--ink);
+}
+pre.snippet { border: 1px solid var(--rule); border-radius: 8px; margin: 1rem 0; }
+pre code { font-family: inherit; background: none; border: 0; padding: 0; white-space: pre; }
+.tk-k { color: var(--tok-kw); font-weight: 600; }
+.tk-t { color: var(--tok-tac); }
+.tk-ty { color: var(--tok-ty); }
+.tk-c { color: var(--tok-com); font-style: italic; }
+.tk-n { color: var(--tok-num); }
+.tk-s { color: var(--tok-str); }
+.tk-o { color: var(--tok-op); }
+.tk-nm { color: var(--tok-name); font-weight: 600; }
+.tk-sorry { color: var(--seal); background: var(--seal-soft); border-radius: 3px; padding: 0 .2em; font-weight: 600; }
+
+/* buttons */
+.btn, .btn-ghost {
+  font-family: var(--font-ui); font-size: .82rem; line-height: 1.2; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; gap: .35rem; border-radius: 6px; white-space: nowrap;
+}
+.btn { padding: .5rem .85rem; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); }
+.btn:hover { border-color: var(--ink-3); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
+.btn-primary:hover { filter: brightness(1.08); border-color: var(--accent); }
+.btn-ghost { padding: .3rem .55rem; border: 0; background: none; color: var(--ink-2); }
+.btn-ghost:hover { background: var(--paper-3); color: var(--ink); }
+
+/* exercise worksheet */
+.exercise { border: 1.5px solid var(--ink-3); border-radius: 10px; background: var(--paper); overflow: hidden; }
+.exercise.done { border-color: var(--ok); }
+.ex-head { display: flex; align-items: center; gap: .6rem; padding: .55rem .6rem .55rem .9rem; font-family: var(--font-ui); font-size: .85rem; flex-wrap: wrap; }
+.ex-tag { font-weight: 700; letter-spacing: .12em; color: var(--seal); }
+.exercise.done .ex-tag { color: var(--ok); }
+.ex-name { font-family: var(--font-code); }
+.ex-done { font-family: var(--font-ui); font-size: .78rem; border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2); border-radius: 999px; padding: .25rem .7rem; cursor: pointer; }
+.ex-done[aria-pressed="true"] { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); font-weight: 600; }
+.exercise pre.lean { border-block: 1px solid var(--rule); }
+.ex-actions { display: flex; flex-wrap: wrap; gap: .5rem; padding: .7rem .9rem; }
+details.solution { border-top: 1px dashed var(--rule); }
+details.solution summary { cursor: pointer; padding: .6rem .9rem; font-family: var(--font-ui); font-size: .82rem; color: var(--ink-2); list-style: none; }
+details.solution summary::-webkit-details-marker { display: none; }
+details.solution summary::before { content: "▸"; display: inline-block; width: 1em; transition: transform .15s; }
+details.solution[open] summary::before { transform: rotate(90deg); }
+details.solution pre.lean { background: var(--ok-soft); border-top: 1px solid var(--rule); }
+
+.toast { position: fixed; left: 50%; bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--paper); font-family: var(--font-ui); font-size: .85rem; padding: .55rem 1rem; border-radius: 6px; z-index: 50; box-shadow: var(--shadow); }
+
+/* chapter pager */
+.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); font-family: var(--font-ui); }
+.pager a { display: grid; gap: .15rem; padding: .9rem 1rem; border: 1px solid var(--rule); border-radius: 8px; text-decoration: none; color: var(--ink); min-width: 0; }
+.pager a:hover { border-color: var(--accent); }
+.pager small { color: var(--ink-3); font-size: .75rem; }
+.pager .next { text-align: right; grid-column: 2; }
+
+/* cover */
+.cover-title { font-family: var(--font-head); font-weight: 900; font-size: clamp(2.2rem, 7vw, 3.6rem); line-height: 1.15; letter-spacing: .02em; margin: .5rem 0 1rem; text-wrap: balance; }
+.cover-title .eps { font-family: "STIX Two Text", serif; font-style: italic; font-weight: 400; color: var(--seal); }
+.lede { font-size: 1.12rem; color: var(--ink-2); max-width: 38rem; margin: 0 0 1.75rem; }
+.facts { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; font-family: var(--font-ui); font-size: .85rem; color: var(--ink-2); margin-bottom: 2rem; }
+.facts b { font-family: "STIX Two Text", serif; font-size: 1.35rem; color: var(--ink); font-weight: 600; margin-right: .2rem; font-variant-numeric: tabular-nums; }
+
+.hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--paper-2); box-shadow: var(--shadow); }
+.hero pre.lean { background: var(--paper-2); }
+.infoview { border-left: 1px solid var(--rule); background: var(--paper); padding: .9rem 1rem; font-family: var(--font-code); font-size: .8rem; line-height: 1.65; min-width: 0; overflow-x: auto; }
+.infoview .iv-h { font-family: var(--font-ui); font-size: .72rem; letter-spacing: .1em; color: var(--ink-3); margin-bottom: .5rem; }
+.infoview .goal { white-space: pre; }
+.infoview .turnstile { color: var(--seal); font-weight: 700; }
+.hero-bar { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .7rem .9rem; border-top: 1px solid var(--rule); background: var(--paper); font-family: var(--font-ui); font-size: .82rem; color: var(--ink-2); }
+
+.how { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 2.5rem 0; }
+.how > div { border-top: 2px solid var(--ink); padding-top: .75rem; }
+.how h3 { font-family: var(--font-head); font-size: 1.05rem; margin: 0 0 .35rem; }
+.how p { margin: 0; color: var(--ink-2); font-size: .95rem; line-height: 1.7; }
+
+.contents h2 { font-family: var(--font-head); font-size: 1.35rem; margin: 3rem 0 .75rem; }
+.ch-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--rule); }
+.ch-list a { display: grid; grid-template-columns: 3rem minmax(0, 1fr) auto; gap: 1rem; align-items: center; padding: 1rem .25rem; border-bottom: 1px solid var(--rule); text-decoration: none; color: var(--ink); }
+.ch-list a:hover .cl-title { color: var(--accent); }
+.cl-num { width: 2.6rem; height: 2.6rem; display: grid; place-items: center; border: 1.5px solid var(--seal); border-radius: 4px; color: var(--seal); font-family: "STIX Two Text", serif; font-size: 1.35rem; }
+.cl-title { font-family: var(--font-head); font-weight: 700; font-size: 1.08rem; line-height: 1.4; }
+.cl-sum { display: block; color: var(--ink-2); font-size: .9rem; line-height: 1.55; margin-top: .15rem; }
+.cl-prog { font-family: var(--font-ui); font-size: .78rem; color: var(--ink-3); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cl-prog .bar { width: 4.5rem; height: 4px; border-radius: 2px; background: var(--paper-3); margin-top: .35rem; overflow: hidden; }
+.cl-prog .bar i { display: block; height: 100%; background: var(--ok); }
+.colophon { margin-top: 3rem; font-family: var(--font-ui); font-size: .8rem; color: var(--ink-3); line-height: 1.7; }
+
+/* widgets */
+.widget { margin: 1.5rem 0; border: 1px solid var(--rule); border-radius: 10px; background: var(--paper); overflow: hidden; font-family: var(--font-ui); }
+.w-head { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .7rem .9rem; border-bottom: 1px solid var(--rule); background: var(--paper-2); font-size: .85rem; }
+.w-head b { font-family: var(--font-head); font-size: .95rem; }
+.w-controls { display: flex; flex-wrap: wrap; gap: .75rem 1.25rem; align-items: center; padding: .7rem .9rem; font-size: .85rem; color: var(--ink-2); }
+.w-controls label { display: inline-flex; align-items: center; gap: .5rem; }
+.w-controls input[type="range"] { width: min(14rem, 50vw); accent-color: var(--accent); }
+.w-controls select { font: inherit; padding: .25rem .4rem; border: 1px solid var(--rule); border-radius: 5px; background: var(--paper); color: var(--ink); }
+.w-canvas { display: block; width: 100%; height: 260px; }
+.w-read { padding: .65rem .9rem; border-top: 1px solid var(--rule); font-size: .88rem; color: var(--ink); line-height: 1.6; font-variant-numeric: tabular-nums; }
+.w-read .bad { color: var(--seal); font-weight: 600; }
+.w-read .good { color: var(--ok); font-weight: 600; }
+
+/* narrow screens: rail becomes a drawer under a sticky top bar */
+@media (max-width: 960px) {
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--paper); }
+  #topbar {
+    display: flex; align-items: center; gap: .75rem; position: sticky; top: env(safe-area-inset-top, 0px); z-index: 25;
+    padding-block: .55rem; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+    background: var(--paper); border-bottom: 1px solid var(--rule); font-family: var(--font-ui); font-size: .9rem;
+  }
+  #topbar .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+  #rail { transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow); width: min(19rem, 86vw); }
+  body.menu-open #rail { transform: none; }
+  body.menu-open #scrim { display: block; position: fixed; inset: 0; background: rgba(0, 0, 0, .3); z-index: 15; }
+  main { margin-left: 0; padding-block: 1.5rem 5rem; }
+}
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  .infoview { border-left: 0; border-top: 1px solid var(--rule); }
+  .how { grid-template-columns: minmax(0, 1fr); }
+  .ch-head { grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+  .seal { width: 3.25rem; height: 3.25rem; font-size: 1.8rem; }
+  .ch-list a { grid-template-columns: 2.75rem minmax(0, 1fr); }
+  .cl-prog { grid-column: 2; text-align: left; }
+  .cl-prog .bar { display: none; }
+  .prose p, .prose li { text-align: left; }
+  .pager { grid-template-columns: minmax(0, 1fr); }
+  .pager .next { grid-column: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; scroll-behavior: auto !important; }
+}
+</style>
+<!--HEAD-END-->
+<div id="topbar">
+  <button class="btn" id="menu-btn" type="button" aria-expanded="false" aria-controls="rail">目录</button>
+  <span class="t" id="topbar-title">Lean 数学分析入门</span>
+</div>
+<aside id="rail" aria-label="章节目录">
+  <a class="brand" href="#home">
+    <span class="brand-mark">ε</span>
+    <span><b>Lean 数学分析入门</b><small>一本可以运行的教科书</small></span>
+  </a>
+  <div class="overall" id="overall"></div>
+  <nav>
+    <p class="toc-label">目录</p>
+    <div id="toc"></div>
+  </nav>
+  <div class="rail-foot">
+    <span>Lean 4 · Mathlib · 共 __CHAPTER_COUNT__ 章 __TOTAL_EXERCISES__ 题</span>
+    <a href="https://live.lean-lang.org" target="_blank" rel="noopener">Lean 4 Web 在线编辑器 ↗</a>
+    <a id="repo-link" href="#" target="_blank" rel="noopener">本书源代码 ↗</a>
+  </div>
+</aside>
+<div id="scrim"></div>
+<main id="main"><div class="col" id="view"></div></main>
+
+<script type="application/json" id="book-data">/*__BOOK_DATA__*/</script>
+<script>
+(function () {
+  'use strict';
+  const BOOK = JSON.parse(document.getElementById('book-data').textContent);
+  const CH = BOOK.chapters;
+  const LIVE = 'https://live.lean-lang.org/';
+  const KEY = 'lean-analysis-progress-v1';
+  const view = document.getElementById('view');
+  document.getElementById('repo-link').href = BOOK.repo;
+
+  // ---------- progress (per-viewer, best effort) ----------
+  let progress = {};
+  try { progress = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { progress = {}; }
+  function saveProgress() { try { localStorage.setItem(KEY, JSON.stringify(progress)); } catch (e) { /* storage unavailable */ } }
+  const exercisesOf = (ch) => ch.blocks.filter((b) => b.ex).map((b) => b.ex.id);
+  const doneIn = (ch) => exercisesOf(ch).filter((id) => progress[id]).length;
+  const TOTAL = CH.reduce((s, c) => s + c.exercises, 0);
+
+  // ---------- helpers ----------
+  const el = (tag, attrs, html) => {
+    const n = document.createElement(tag);
+    if (attrs) for (const k in attrs) { if (attrs[k] != null) n.setAttribute(k, attrs[k]); }
+    if (html != null) n.innerHTML = html;
+    return n;
+  };
+  const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function liveUrl(code) {
+    try {
+      if (window.LZString) return LIVE + '#codez=' + encodeURIComponent(LZString.compressToBase64(code).replace(/=+$/, ''));
+    } catch (e) { /* fall back to plain code */ }
+    return LIVE + '#code=' + encodeURIComponent(code);
+  }
+  // “运行”链接：先用未压缩的地址，压缩库加载后再换成更短的地址。
+  let liveLinks = [];
+  function liveLink(attrs, label, code) {
+    const a = el('a', Object.assign({ href: liveUrl(code), target: '_blank', rel: 'noopener' }, attrs), label);
+    liveLinks.push({ a, code });
+    return a;
+  }
+  function refreshLiveLinks() { liveLinks.forEach((l) => { l.a.href = liveUrl(l.code); }); }
+  function loadScript(src, onload) {
+    const s = document.createElement('script');
+    s.src = src; s.async = true; s.onload = onload;
+    document.head.appendChild(s);
+  }
+  let toastTimer = null;
+  function toast(msg) {
+    let t = document.querySelector('.toast');
+    if (!t) { t = el('div', { class: 'toast', role: 'status' }); document.body.appendChild(t); }
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 2200);
+  }
+  function copyText(text, preEl) {
+    const fallback = () => {
+      if (preEl) {
+        const r = document.createRange(); r.selectNodeContents(preEl);
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+        toast('已选中代码，请按 Ctrl+C / ⌘C 复制');
+      } else toast('无法访问剪贴板');
+    };
+    try {
+      navigator.clipboard.writeText(text).then(() => toast('已复制到剪贴板'), fallback);
+    } catch (e) { fallback(); }
+  }
+
+  // ---------- Lean highlighting ----------
+  const KW = new Set('theorem lemma def example abbrev instance structure inductive namespace end open section variable by fun λ have show from let in at with match calc do then else if using only where import noncomputable private protected set_option deriving this'.split(' '));
+  const TAC = new Set('intro intros rintro apply exact refine use obtain rcases constructor left right linarith nlinarith positivity norm_num ring ring_nf simp simpa simp_all field_simp rw rwa rewrite unfold push push_neg push_cast by_contra by_cases specialize induction exact_mod_cast norm_cast gcongr omega congr ext funext convert rfl trivial exfalso contradiction assumption fun_prop dsimp change decide exact? apply? aesop continuity calc'.split(' '));
+  const TY = new Set(['ℝ', 'ℕ', 'ℤ', 'ℚ', 'ℂ', 'Prop', 'Type', 'Set', 'True', 'False', 'Not']);
+  const IDENT = /[\p{L}_][\p{L}\p{N}_'!?₀-ₜᵢ-ᵪ]*(?:\.[\p{L}_][\p{L}\p{N}_'!?₀-ₜᵢ-ᵪ]*)*/uy;
+  const OPS = /[∀∃→↔∧∨¬⊢↦≤≥≠∈∉⊆⊂⟨⟩×·∑∘|:=<>+\-*/^←⁻¹]+/y;
+  function highlight(code) {
+    let out = '';
+    let i = 0;
+    let expectName = false;
+    const push = (cls, s) => { out += cls ? `<span class="${cls}">${escapeHtml(s)}</span>` : escapeHtml(s); };
+    while (i < code.length) {
+      const c = code[i];
+      if (code.startsWith('/-', i)) {
+        let d = 1, j = i + 2;
+        while (j < code.length && d > 0) {
+          if (code.startsWith('/-', j)) { d++; j += 2; } else if (code.startsWith('-/', j)) { d--; j += 2; } else j++;
+        }
+        push('tk-c', code.slice(i, j)); i = j; continue;
+      }
+      if (code.startsWith('--', i)) {
+        let j = code.indexOf('\n', i); if (j < 0) j = code.length;
+        push('tk-c', code.slice(i, j)); i = j; continue;
+      }
+      if (c === '"') {
+        let j = i + 1; while (j < code.length && code[j] !== '"') j += code[j] === '\\' ? 2 : 1;
+        push('tk-s', code.slice(i, j + 1)); i = j + 1; continue;
+      }
+      if (/[0-9]/.test(c)) {
+        const m = /[0-9]+(\.[0-9]+)?/y; m.lastIndex = i; const r = m.exec(code);
+        push('tk-n', r[0]); i += r[0].length; continue;
+      }
+      IDENT.lastIndex = i;
+      const id = IDENT.exec(code);
+      if (id) {
+        const w = id[0];
+        let cls = null;
+        if (w === 'sorry') cls = 'tk-sorry';
+        else if (expectName) { cls = 'tk-nm'; expectName = false; }
+        else if (KW.has(w)) { cls = 'tk-k'; if (w === 'theorem' || w === 'lemma' || w === 'def' || w === 'abbrev') expectName = true; }
+        else if (TAC.has(w)) cls = 'tk-t';
+        else if (TY.has(w)) cls = 'tk-ty';
+        push(cls, w); i += w.length; continue;
+      }
+      OPS.lastIndex = i;
+      const op = OPS.exec(code);
+      if (op) { push('tk-o', op[0]); i += op[0].length; continue; }
+      push(null, c); i++;
+    }
+    return out;
+  }
+  function leanPre(code) {
+    const pre = el('pre', { class: 'lean' });
+    pre.innerHTML = '<code>' + highlight(code) + '</code>';
+    return pre;
+  }
+
+  // ---------- math ----------
+  function renderMath(root) {
+    if (!window.katex) return;
+    root.querySelectorAll('.math:not(.rendered)').forEach((m) => {
+      try {
+        katex.render(m.dataset.tex, m, { displayMode: m.dataset.display === '1', output: 'mathml', throwOnError: false });
+        m.classList.add('rendered');
+      } catch (e) { /* leave TeX source visible */ }
+    });
+  }
+
+  // ---------- sidebar ----------
+  const toc = document.getElementById('toc');
+  function renderToc(current) {
+    toc.innerHTML = '';
+    CH.forEach((ch) => {
+      const d = doneIn(ch);
+      const a = el('a', { class: 'toc-item', href: '#' + ch.id, 'aria-current': current === ch.id ? 'page' : null },
+        `<span class="toc-num">${ch.num}</span><span>${escapeHtml(ch.title)}</span><span class="toc-prog${d === ch.exercises ? ' full' : ''}">${d}/${ch.exercises}</span>`);
+      toc.appendChild(a);
+    });
+    const total = CH.reduce((s, c) => s + doneIn(c), 0);
+    document.getElementById('overall').innerHTML = `<span>已完成 ${total} / ${TOTAL} 道练习</span><span class="bar"><i style="width:${(100 * total / TOTAL).toFixed(1)}%"></i></span>`;
+  }
+
+  // ---------- chapter view ----------
+  function codeFigure(ch, b) {
+    const fig = el('figure', { class: 'code' });
+    const bar = el('div', { class: 'code-bar' }, '<span class="lbl">LEAN</span><span class="spacer"></span>');
+    const copy = el('button', { class: 'btn-ghost', type: 'button' }, '复制');
+    const pre = leanPre(b.code);
+    copy.addEventListener('click', () => copyText(b.code, pre));
+    const run = liveLink({ class: 'btn-ghost', title: '在 Lean 4 Web 中打开本章开头到这里的全部代码' }, '运行到此处 ↗', ch.source.slice(0, b.upto));
+    bar.append(copy, run);
+    fig.append(bar, pre);
+    return fig;
+  }
+  function exerciseCard(ch, b, idx) {
+    const done = !!progress[b.ex.id];
+    const sec = el('section', { class: 'exercise' + (done ? ' done' : ''), id: `${ch.id}-ex${idx}`, 'aria-label': '练习 ' + b.ex.name });
+    const head = el('div', { class: 'ex-head' }, `<span class="ex-tag">练习</span><code class="ex-name">${escapeHtml(b.ex.name)}</code><span class="spacer"></span>`);
+    const toggle = el('button', { class: 'ex-done', type: 'button', 'aria-pressed': String(done) }, done ? '✓ 已完成' : '标记为完成');
+    toggle.addEventListener('click', () => {
+      const now = !progress[b.ex.id];
+      if (now) progress[b.ex.id] = true; else delete progress[b.ex.id];
+      saveProgress();
+      toggle.setAttribute('aria-pressed', String(now));
+      toggle.textContent = now ? '✓ 已完成' : '标记为完成';
+      sec.classList.toggle('done', now);
+      renderToc(ch.id);
+      updateMeta(ch);
+    });
+    head.appendChild(toggle);
+    const pre = leanPre(b.code);
+    const actions = el('div', { class: 'ex-actions' });
+    const run = liveLink({ class: 'btn btn-primary' }, '在浏览器中做这道题 ↗', ch.source.slice(0, b.upto));
+    const copy = el('button', { class: 'btn', type: 'button' }, '复制题目');
+    copy.addEventListener('click', () => copyText(b.code, pre));
+    actions.append(run, copy);
+    const det = el('details', { class: 'solution' });
+    det.appendChild(el('summary', null, '查看参考答案'));
+    det.addEventListener('toggle', () => { if (det.open && det.children.length === 1) det.appendChild(leanPre(b.ex.solution)); });
+    sec.append(head, pre, actions, det);
+    return sec;
+  }
+  function updateMeta(ch) {
+    const m = document.getElementById('ch-progress');
+    if (m) m.textContent = `${ch.exercises} 道练习 · 已完成 ${doneIn(ch)}`;
+  }
+  function renderChapter(ch) {
+    view.innerHTML = '';
+    liveLinks = [];
+    const head = el('header', { class: 'ch-head' }, `<div class="seal" aria-hidden="true">${ch.num}</div><div><p class="ch-eyebrow">第 ${ch.num} 章</p><h1 class="ch-title">${escapeHtml(ch.title)}</h1></div>`);
+    const meta = el('div', { class: 'ch-meta' });
+    meta.innerHTML = `<span id="ch-progress"></span><span class="grow"></span>`;
+    const openAll = liveLink({ class: 'btn btn-primary' }, '在浏览器中打开本章 ↗', ch.source);
+    const copyAll = el('button', { class: 'btn', type: 'button' }, '复制本章 .lean');
+    copyAll.addEventListener('click', () => copyText(ch.source, null));
+    meta.append(openAll, copyAll);
+    view.append(head, meta);
+    let exIdx = 0;
+    ch.blocks.forEach((b) => {
+      if (b.t === 'p') view.appendChild(el('div', { class: 'prose' }, b.html));
+      else if (b.ex) view.appendChild(exerciseCard(ch, b, ++exIdx));
+      else view.appendChild(codeFigure(ch, b));
+    });
+    view.querySelectorAll('pre.lean-src code').forEach((c) => { c.innerHTML = highlight(c.textContent); });
+    const i = CH.indexOf(ch);
+    const pager = el('nav', { class: 'pager', 'aria-label': '翻页' });
+    if (i > 0) pager.appendChild(el('a', { class: 'prev', href: '#' + CH[i - 1].id }, `<small>← 上一章</small><span>第 ${CH[i - 1].num} 章　${escapeHtml(CH[i - 1].title)}</span>`));
+    if (i < CH.length - 1) pager.appendChild(el('a', { class: 'next', href: '#' + CH[i + 1].id }, `<small>下一章 →</small><span>第 ${CH[i + 1].num} 章　${escapeHtml(CH[i + 1].title)}</span>`));
+    view.appendChild(pager);
+    updateMeta(ch);
+    renderMath(view);
+    view.querySelectorAll('.widget').forEach(mountWidget);
+    document.getElementById('topbar-title').textContent = `第 ${ch.num} 章　${ch.title}`;
+  }
+
+  // ---------- cover ----------
+  function renderCover() {
+    view.innerHTML = '';
+    liveLinks = [];
+    const ch4 = CH.find((c) => c.id === 'ch04');
+    const defBlock = ch4.blocks.find((b) => b.t === 'c' && b.code.includes('def TendsTo'));
+    const exBlock = ch4.blocks.find((b) => b.t === 'c' && b.code.includes('tendsTo_one_div'));
+    const heroCode = defBlock.code + '\n\n' + exBlock.code.split('\n').slice(0, 5).join('\n') + '\n  -- …';
+    const doneTotal = CH.reduce((s, c) => s + doneIn(c), 0);
+    view.innerHTML = `
+      <p class="ch-eyebrow">数学分析（一）· 互动式教科书</p>
+      <h1 class="cover-title">用 Lean 证明每一个 <span class="eps">ε</span></h1>
+      <p class="lede">这是一本可以运行的数学分析入门教科书。每个定义、每条定理、每道练习都是 Lean 4 代码，由计算机逐行检查。从逻辑与实数出发，经过数列极限与连续性，一直走到介值定理和中值定理。</p>
+      <div class="facts"><span><b>${CH.length}</b>章</span><span><b>${TOTAL}</b>道练习</span><span><b>${doneTotal}</b>道已完成</span><span>全部例题与参考答案均已通过 Lean 检查</span></div>`;
+    const hero = el('div', { class: 'hero' });
+    hero.appendChild(leanPre(heroCode));
+    hero.appendChild(el('div', { class: 'infoview', 'aria-label': 'Lean 目标面板示例' },
+      `<div class="iv-h">LEAN 目标面板 · intro ε hε 之后</div><div class="goal">ε : ℝ\nhε : ε &gt; 0\n<span class="turnstile">⊢</span> ∃ N, ∀ n ≥ N,\n    |1 / (↑n + 1) - 0| &lt; ε</div>`));
+    const bar = el('div', { class: 'hero-bar' }, '<span>左边是第 4 章的数列极限定义。右边是 Lean 在证明进行到一半时显示的“还需要证明什么”。</span><span class="spacer"></span>');
+    bar.appendChild(liveLink({ class: 'btn btn-primary' }, '在浏览器中运行 ↗', ch4.source));
+    hero.appendChild(bar);
+    view.appendChild(hero);
+    view.appendChild(el('div', { class: 'how' }, `
+      <div><h3>在浏览器中学</h3><p>每段代码旁都有“运行”按钮，会在 Lean 4 Web 中打开，无需安装。把练习里的 <code class="inline-code">sorry</code> 换成你的证明，看到 No goals 就完成了。</p></div>
+      <div><h3>在本地学</h3><p>安装 VS Code 与 Lean 4 扩展，克隆本书，运行 <code class="inline-code">lake exe cache get</code>，打开 <code class="inline-code">Analysis/</code> 下的章节文件。</p></div>`));
+    const contents = el('section', { class: 'contents' }, '<h2>目录</h2>');
+    const list = el('ol', { class: 'ch-list' });
+    CH.forEach((ch) => {
+      const d = doneIn(ch);
+      const li = el('li');
+      li.appendChild(el('a', { href: '#' + ch.id }, `<span class="cl-num">${ch.num}</span><span><span class="cl-title">${escapeHtml(ch.title)}</span><span class="cl-sum">${escapeHtml(ch.summary)}</span></span><span class="cl-prog">${d} / ${ch.exercises} 题<span class="bar"><i style="width:${(100 * d / ch.exercises).toFixed(0)}%"></i></span></span>`));
+      list.appendChild(li);
+    });
+    contents.appendChild(list);
+    view.appendChild(contents);
+    view.appendChild(el('p', { class: 'colophon' }, '本书所有代码基于 Lean 4 与 Mathlib，章节文件与参考答案均已通过 <code class="inline-code">lake build</code> 检查。“已完成”标记只保存在你自己的浏览器里。'));
+    document.getElementById('topbar-title').textContent = 'Lean 数学分析入门';
+  }
+
+  // ---------- widgets ----------
+  const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  function setupCanvas(canvas) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx, w, h };
+  }
+  const redrawers = new Set();
+  function redrawAll() { redrawers.forEach((f) => f()); }
+  window.addEventListener('resize', redrawAll);
+  try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawAll); } catch (e) { /* old browsers */ }
+  new MutationObserver(redrawAll).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  function mountWidget(host) {
+    if (host.dataset.mounted) return;
+    host.dataset.mounted = '1';
+    if (host.dataset.widget === 'eps-n') mountEpsN(host);
+    if (host.dataset.widget === 'eps-delta') mountEpsDelta(host);
+  }
+  const fmt = (x, d) => x.toFixed(d === undefined ? 3 : d);
+  const sliderToEps = (v, lo, hi) => lo * Math.pow(hi / lo, v / 1000);
+
+  function mountEpsN(host) {
+    const SEQS = [
+      { label: '1/(n+1) → 0', a: (n) => 1 / (n + 1), L: 0 },
+      { label: '(−1)ⁿ/√(n+1) → 0', a: (n) => (n % 2 ? -1 : 1) / Math.sqrt(n + 1), L: 0 },
+      { label: '1 + (−0.8)ⁿ → 1', a: (n) => 1 + Math.pow(-0.8, n), L: 1 },
+    ];
+    host.innerHTML = `
+      <div class="w-head"><b>ε-N 游戏</b><span>对手给出 ε，你需要找到 N</span></div>
+      <div class="w-controls">
+        <label for="w-epsn-seq">数列 <select id="w-epsn-seq">${SEQS.map((s, i) => `<option value="${i}">${s.label}</option>`).join('')}</select></label>
+        <label for="w-epsn-eps">ε <input id="w-epsn-eps" type="range" min="0" max="1000" value="560"></label>
+      </div>
+      <canvas class="w-canvas" aria-label="数列的各项与 ε 带"></canvas>
+      <div class="w-read" aria-live="polite"></div>`;
+    const sel = host.querySelector('select'), rng = host.querySelector('input'), cv = host.querySelector('canvas'), rd = host.querySelector('.w-read');
+    const NMAX = 40;
+    function draw() {
+      const s = SEQS[+sel.value];
+      const eps = sliderToEps(+rng.value, 0.02, 1);
+      let N = 0;
+      for (let n = 3000; n >= 0; n--) { if (Math.abs(s.a(n) - s.L) >= eps) { N = n + 1; break; } }
+      const { ctx, w, h } = setupCanvas(cv);
+      const padL = 34, padR = 12, padT = 12, padB = 24;
+      const ymin = s.L - 1.15, ymax = s.L + 1.15;
+      const X = (n) => padL + (n / NMAX) * (w - padL - padR);
+      const Y = (y) => padT + (ymax - y) / (ymax - ymin) * (h - padT - padB);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = cssVar('--accent-soft');
+      ctx.fillRect(padL, Y(s.L + eps), w - padL - padR, Y(s.L - eps) - Y(s.L + eps));
+      ctx.strokeStyle = cssVar('--rule'); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(padL, Y(s.L)); ctx.lineTo(w - padR, Y(s.L)); ctx.stroke();
+      ctx.fillStyle = cssVar('--ink-3'); ctx.font = '11px ' + cssVar('--font-ui');
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText('L', padL - 6, Y(s.L)); ctx.fillText('L+ε', padL - 4, Math.max(Y(s.L + eps), padT + 6)); ctx.fillText('L−ε', padL - 4, Math.min(Y(s.L - eps), h - padB - 6));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      for (let n = 0; n <= NMAX; n += 10) ctx.fillText(String(n), X(n), h - padB + 6);
+      if (N <= NMAX) {
+        ctx.strokeStyle = cssVar('--seal'); ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(X(N), padT); ctx.lineTo(X(N), h - padB); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = cssVar('--seal'); ctx.textAlign = 'left'; ctx.fillText('N = ' + N, X(N) + 4, padT);
+      }
+      for (let n = 0; n <= NMAX; n++) {
+        const inside = Math.abs(s.a(n) - s.L) < eps;
+        ctx.fillStyle = n >= N ? cssVar('--ok') : (inside ? cssVar('--ink-3') : cssVar('--seal'));
+        ctx.beginPath(); ctx.arc(X(n), Y(Math.max(ymin, Math.min(ymax, s.a(n)))), 3.2, 0, 2 * Math.PI); ctx.fill();
+      }
+      rd.innerHTML = `ε = ${fmt(eps)}　→　取 <b>N = ${N}</b>：当 n ≥ ${N} 时，所有点都落在 ε 带内（<span class="good">绿色</span>）。` +
+        (N > NMAX ? '（N 已超出图中显示的范围。）' : '') + ' ε 越小，N 越大，但总能找到。';
+    }
+    sel.addEventListener('change', draw); rng.addEventListener('input', draw);
+    redrawers.add(draw); requestAnimationFrame(draw);
+  }
+
+  function mountEpsDelta(host) {
+    const FNS = [
+      { label: 'f(x) = 3x + 1，a = 1', f: (x) => 3 * x + 1, a: 1, delta: (e) => e / 3, rule: 'δ = ε/3' },
+      { label: 'f(x) = x²，a = 1', f: (x) => x * x, a: 1, delta: (e) => Math.min(1, e / 3), rule: 'δ = min(1, ε/(2|a|+1))' },
+      { label: '符号函数，a = 0', f: (x) => (x < 0 ? -1 : 1), a: 0, delta: (e) => (e > 2 ? 1 : null), rule: '' },
+    ];
+    host.innerHTML = `
+      <div class="w-head"><b>ε-δ 游戏</b><span>对手给出 ε，你需要找到 δ</span></div>
+      <div class="w-controls">
+        <label for="w-epsd-fn">函数 <select id="w-epsd-fn">${FNS.map((s, i) => `<option value="${i}">${s.label}</option>`).join('')}</select></label>
+        <label for="w-epsd-eps">ε <input id="w-epsd-eps" type="range" min="0" max="1000" value="600"></label>
+      </div>
+      <canvas class="w-canvas" aria-label="函数图像与 ε、δ 带"></canvas>
+      <div class="w-read" aria-live="polite"></div>`;
+    const sel = host.querySelector('select'), rng = host.querySelector('input'), cv = host.querySelector('canvas'), rd = host.querySelector('.w-read');
+    function draw() {
+      const F = FNS[+sel.value];
+      const eps = sliderToEps(+rng.value, 0.05, 3);
+      const d = F.delta(eps);
+      const { ctx, w, h } = setupCanvas(cv);
+      const pad = 14;
+      const xmin = F.a - 2, xmax = F.a + 2;
+      const fa = F.f(F.a);
+      const ymin = fa - 3.4, ymax = fa + 3.4;
+      const X = (x) => pad + (x - xmin) / (xmax - xmin) * (w - 2 * pad);
+      const Y = (y) => pad + (ymax - y) / (ymax - ymin) * (h - 2 * pad);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = cssVar('--accent-soft');
+      ctx.fillRect(pad, Y(fa + eps), w - 2 * pad, Y(fa - eps) - Y(fa + eps));
+      const showD = d === null ? 0.25 : d;
+      ctx.fillStyle = d === null ? cssVar('--seal-soft') : cssVar('--ok-soft');
+      ctx.fillRect(X(F.a - showD), pad, X(F.a + showD) - X(F.a - showD), h - 2 * pad);
+      ctx.strokeStyle = cssVar('--rule'); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(X(F.a), pad); ctx.lineTo(X(F.a), h - pad); ctx.moveTo(pad, Y(fa)); ctx.lineTo(w - pad, Y(fa)); ctx.stroke();
+      const steps = 400;
+      let prev = null;
+      for (let k = 0; k <= steps; k++) {
+        const x = xmin + (xmax - xmin) * k / steps;
+        const y = F.f(x);
+        const inD = Math.abs(x - F.a) < showD;
+        const color = !inD ? cssVar('--ink-3') : (Math.abs(y - fa) < eps ? cssVar('--ok') : cssVar('--seal'));
+        if (prev && Math.abs(prev.y - y) < 1.5) {
+          ctx.strokeStyle = color; ctx.lineWidth = inD ? 3 : 1.8;
+          ctx.beginPath(); ctx.moveTo(X(prev.x), Y(prev.y)); ctx.lineTo(X(x), Y(y)); ctx.stroke();
+        }
+        prev = { x, y };
+      }
+      ctx.fillStyle = cssVar('--ink'); ctx.beginPath(); ctx.arc(X(F.a), Y(fa), 3.5, 0, 2 * Math.PI); ctx.fill();
+      ctx.fillStyle = cssVar('--ink-3'); ctx.font = '11px ' + cssVar('--font-ui'); ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText('f(a) ± ε', pad + 4, Y(fa + eps) - 2);
+      if (d === null) {
+        rd.innerHTML = `ε = ${fmt(eps, 2)}　→　<span class="bad">找不到 δ</span>：无论 δ 多小，a 左侧总有 x 使 |f(x) − f(0)| = 2 ≥ ε。图中红色部分跑出了横向色带。`;
+      } else {
+        rd.innerHTML = `ε = ${fmt(eps, 2)}　→　取 <b>δ = ${fmt(d)}</b>（${F.rule || '任意 δ 都可以'}）：纵向色带内的图像全部落在横向色带内（<span class="good">绿色</span>）。`;
+      }
+    }
+    sel.addEventListener('change', draw); rng.addEventListener('input', draw);
+    redrawers.add(draw); requestAnimationFrame(draw);
+  }
+
+  // ---------- routing ----------
+  let currentId = null;
+  function route() {
+    const h = decodeURIComponent(location.hash.slice(1));
+    const chId = h.split('-')[0];
+    const ch = CH.find((c) => c.id === chId);
+    document.body.classList.remove('menu-open');
+    document.getElementById('menu-btn').setAttribute('aria-expanded', 'false');
+    if (!ch) {
+      redrawers.clear();
+      currentId = null; renderCover(); renderToc(null); window.scrollTo(0, 0);
+      return;
+    }
+    if (currentId !== ch.id) { redrawers.clear(); currentId = ch.id; renderChapter(ch); renderToc(ch.id); }
+    const target = h.includes('-') ? document.getElementById(h) : null;
+    if (target) target.scrollIntoView(); else window.scrollTo(0, 0);
+  }
+  window.addEventListener('hashchange', route);
+  document.getElementById('menu-btn').addEventListener('click', () => {
+    const open = document.body.classList.toggle('menu-open');
+    document.getElementById('menu-btn').setAttribute('aria-expanded', String(open));
+  });
+  document.getElementById('scrim').addEventListener('click', () => {
+    document.body.classList.remove('menu-open');
+    document.getElementById('menu-btn').setAttribute('aria-expanded', 'false');
+  });
+  route();
+  loadScript('https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js', refreshLiveLinks);
+  loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js', () => renderMath(view));
+})();
+</script>

@@ -1,0 +1,35 @@
+name: Lean analysis textbook
+
+on:
+  push:
+    paths:
+      - 'lean-analysis/**'
+      - '.github/workflows/lean-analysis.yml'
+  pull_request:
+    paths:
+      - 'lean-analysis/**'
+      - '.github/workflows/lean-analysis.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Build chapters and solutions with Lean
+        uses: leanprover/lean-action@v1
+        with:
+          lake-package-directory: lean-analysis
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Check that the web book is up to date
+        working-directory: lean-analysis
+        run: |
+          node scripts/build-book.mjs
+          git diff --exit-code -- book/ || (echo "book/index.html is stale: run 'node scripts/build-book.mjs' and commit the result." && exit 1)

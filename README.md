@@ -53,3 +53,7 @@ Once you have built the project, you can run the frontend locally:
 3. Right click on `index.html` and select `Open with Live Server`.
 
 Caveat: Opening the html file directly in the browser gives rise to cors errors and the editor will not be loaded.
+
+## Lean 数学分析入门
+
+The [`lean-analysis/`](lean-analysis/) directory contains an interactive introductory textbook on real analysis (in Chinese), written as Lean 4 + Mathlib files with exercises, verified solutions, and a generated web edition. See [`lean-analysis/README.md`](lean-analysis/README.md).
