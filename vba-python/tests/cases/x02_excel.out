@@ -1,0 +1,5 @@
+Name Score 90 82.5 None
+[['Name', 'Score'], ['Ann', 90], ['Bob', 75], ['Cy', 82.5]]
+[90, 75, 82.5] 247.5
+[1, 2, 3]
+[None, None, None]
