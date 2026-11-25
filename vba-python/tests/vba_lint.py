@@ -28,6 +28,15 @@ vbokonly vbinformation vbexclamation vbcritical vbquestion vbyesno vbnewline rgb
 selection cos
 """.split())
 
+RESERVED = set("""
+and as boolean byref byval call case const currency date decimal declare dim do double each else elseif empty
+end enum erase error exit false for friend function get global gosub goto if implements in integer is let like
+long loop lset me mod new next not nothing null object on option optional or paramarray preserve private property
+public raise redim rem resume return rset select set single static step stop string sub then to true type typeof
+until variant wend while with withevents xor base alias lib event attribute byte open close input output print
+write put seek lock unlock append random access shared name kill line spc tab width binary compare explicit text
+""".split())
+
 def strip_comment(line):
     out, inq = [], False
     for i, ch in enumerate(line):
@@ -119,8 +128,14 @@ class Module:
                 while j < n and not endre.match(self.lines[j][1]):
                     j += 1
                 pub = not (vis and vis.strip().lower() == "private")
-                self.procs.append(dict(name=name, kind=kind, params=parse_params(params), ret=(ret or "Variant").lower(),
-                                       start=i, end=j, public=pub, module=self))
+                prms = parse_params(params)
+                assigned = set()
+                for _, bl, _ in self.lines[i + 1:j]:
+                    for prm in prms:
+                        if re.match(r"^\s*(Set\s+)?%s\s*(\(.*\))?\s*=" % re.escape(prm["name"]), blank_strings(bl), re.I):
+                            assigned.add(prm["name"].lower())
+                self.procs.append(dict(name=name, kind=kind, params=prms, ret=(ret or "Variant").lower(),
+                                       start=i, end=j, public=pub, module=self, assigned=assigned))
                 i = j + 1; continue
             m = re.match(r"^\s*(Public|Private|Dim|Global)\s+(Const\s+)?(.*)$", l, re.I)
             if m and not s.lower().startswith(("public sub", "private sub", "public function", "private function")):
@@ -164,6 +179,8 @@ def main(paths):
         for p in m.procs:
             local = {}
             for prm in p["params"]:
+                if prm["name"].lower() in RESERVED:
+                    errors.append("%s.%s: parameter name is a VBA keyword: %s" % (m.name, p["name"], prm["name"]))
                 if prm["name"].lower() in local:
                     errors.append("%s.%s: duplicate parameter %s" % (m.name, p["name"], prm["name"]))
                 local[prm["name"].lower()] = prm["type"] + ("()" if prm["array"] else "")
@@ -180,6 +197,8 @@ def main(paths):
                         d2 = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)(\(.*?\))?\s*(?:As\s+(?:New\s+)?([A-Za-z_][A-Za-z0-9_]*))?", decl, re.I)
                         if d2:
                             nm = d2.group(1).lower()
+                            if nm in RESERVED:
+                                errors.append("%s.%s:%d: variable name is a VBA keyword: %s" % (m.name, p["name"], ln, d2.group(1)))
                             if nm in local:
                                 errors.append("%s.%s:%d: duplicate declaration %s" % (m.name, p["name"], ln, nm))
                             local[nm] = (d2.group(3) or "Variant").lower() + ("()" if d2.group(2) else "")
@@ -206,6 +225,12 @@ def main(paths):
                 if re.match(r"^Exit\s+Sub", s, re.I) and p["kind"] != "sub":
                     errors.append("%s.%s:%d: Exit Sub in a %s" % (m.name, p["name"], ln, p["kind"]))
                 code = re.sub(r"\b[A-Za-z_]\w*:=", "", s)   # named arguments
+                if p["kind"] == "function":
+                    for fm in re.finditer(r"(?<![\w.])%s(?![\w(])" % re.escape(p["name"]), code):
+                        before, after = code[:fm.start()], code[fm.end():]
+                        if re.search(r"(^|:|Then|Else)\s*(Set\s+)?$", before) and re.match(r"^\s*=", after):
+                            continue
+                        errors.append("%s.%s:%d: the function's own name is used as a value (write the result through a local variable)" % (m.name, p["name"], ln))
                 for tok in ident.finditer(code):
                     nm = tok.group(1)
                     if not known(nm):
@@ -272,6 +297,9 @@ def check_args(pr, args, m, p, var_type, errors, ln):
     for a, prm in zip(args, params):
         if prm["paramarray"]:
             break
+        if not prm["byval"] and prm["name"].lower() in pr.get("assigned", ()) and re.match(r"^[A-Za-z_]\w*(\(.*\))?\.[A-Za-z_]\w*$", a):
+            errors.append("%s.%s:%d: object property %s passed ByRef to %s.%s, which assigns it (the write is lost)" % (
+                m.name, p["name"], ln, a, pr["name"], prm["name"]))
         if prm["byval"] or prm["type"] == "variant" and not prm["array"]:
             continue
         am = re.match(r"^([A-Za-z_]\w*)$", a)

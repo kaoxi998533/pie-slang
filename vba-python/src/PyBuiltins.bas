@@ -1559,7 +1559,7 @@ Private Sub CallBuiltinA2(ByVal fo As PyObj, ByVal c As Long, ByRef args() As Va
         End If
     Case BI_PROPERTY
         Set o = NewObj(OK_PROP)
-        If ArgOr(args, na, 0, kw, "fget", v) Then SetV o.FnV, v
+        If ArgOr(args, na, 0, kw, "fget", v) Then o.SetFnV v
         If ArgOr(args, na, 1, kw, "fset", v) Then
             If IsObject(v) Then
                 Set o.SelfV = v
@@ -2276,7 +2276,7 @@ Private Sub CallLib(ByVal fo As PyObj, ByVal c As Long, ByRef args() As Variant,
     Case BI_C_DEFAULTDICT
         Set r = NewDict()
         r.Flags = 1
-        If na > 0 Then SetV r.FnV, args(0)
+        If na > 0 Then r.SetFnV args(0)
         If na > 1 Then DictUpdateFrom r, args(1)
         Set out = r
     Case BI_C_COUNTER
@@ -2414,7 +2414,7 @@ Private Function MakeCached(ByRef f As Variant) As PyObj
     Set o = NewObj(OK_BUILTIN)
     o.PName = FuncNameOf(f)
     o.Code = BI_F_CACHED
-    SetV o.FnV, f
+    o.SetFnV f
     Set o.Ref = NewObj(OK_ENV)
     Set MakeCached = o
 End Function
@@ -2943,7 +2943,7 @@ Public Sub CallMethod(ByRef selfV As Variant, ByVal nm As String, ByRef args() A
         Case OK_PROP
             Dim p As PyObj
             Set p = NewObj(OK_PROP)
-            SetV p.FnV, o.FnV
+            p.SetFnV o.FnV
             If IsObject(o.SelfV) Then
                 Set p.SelfV = o.SelfV
             Else
@@ -2957,7 +2957,7 @@ Public Sub CallMethod(ByRef selfV As Variant, ByVal nm As String, ByRef args() A
                     p.SelfV = args(0)
                 End If
             ElseIf nm = "getter" Then
-                SetV p.FnV, args(0)
+                p.SetFnV args(0)
             End If
             Set out = p
             Exit Sub
@@ -3654,7 +3654,7 @@ Private Sub DictMethod(ByVal o As PyObj, ByVal nm As String, ByRef args() As Var
     Case "copy"
         Set r = CopyDict(o, OK_DICT)
         r.Flags = o.Flags
-        SetV r.FnV, o.FnV
+        r.SetFnV o.FnV
         Set out = r
     Case "most_common"
         Set r = NewList()

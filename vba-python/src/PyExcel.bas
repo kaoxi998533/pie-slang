@@ -344,12 +344,12 @@ Private Function ReadCode(ByVal ws As Object) As String
     ReadCode = Join(parts, vbLf)
 End Function
 
-Private Sub WriteOutput(ByVal ws As Object, ByVal text As String)
+Private Sub WriteOutput(ByVal ws As Object, ByVal txt As String)
     Dim lines() As String, n As Long, arr() As Variant, i As Long, s As String
     ws.Columns(OUT_COLUMN).ClearContents
-    If Right$(text, 1) = vbLf Then text = Left$(text, Len(text) - 1)
-    If Len(text) = 0 Then Exit Sub
-    lines = Split(text, vbLf)
+    If Right$(txt, 1) = vbLf Then txt = Left$(txt, Len(txt) - 1)
+    If Len(txt) = 0 Then Exit Sub
+    lines = Split(txt, vbLf)
     n = UBound(lines) + 1
     If n > 1048575 Then n = 1048575
     ReDim arr(1 To n, 1 To 1)

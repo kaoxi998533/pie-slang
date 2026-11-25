@@ -48,6 +48,16 @@ Private eLive() As Boolean
 Private slots() As Long
 Private sMask As Long
 
+' field setters (an object property passed ByRef to another procedure is a
+' temporary copy, so writes must happen inside the class)
+Public Sub SetFnV(ByRef v As Variant)
+    If IsObject(v) Then Set FnV = v Else FnV = v
+End Sub
+
+Public Sub SetSelfV(ByRef v As Variant)
+    If IsObject(v) Then Set SelfV = v Else SelfV = v
+End Sub
+
 ' =========================== item array ====================================
 Public Sub Reserve(ByVal n As Long)
     Dim nc As Long

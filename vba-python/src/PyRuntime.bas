@@ -225,9 +225,10 @@ Public Sub KeepObj(ByVal o As PyObj)
 End Sub
 
 Public Sub ReleaseAll()
-    Dim i As Long
+    Dim i As Long, ko As PyObj
     For i = 0 To gKeepN - 1
-        If Not (gKeep(i) Is Nothing) Then gKeep(i).Release
+        Set ko = gKeep(i)
+        If Not (ko Is Nothing) Then ko.Release
         Set gKeep(i) = Nothing
     Next
     gKeepN = 0

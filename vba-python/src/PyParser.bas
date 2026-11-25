@@ -1844,12 +1844,12 @@ Private Sub ParseFStringInto(ByVal nd As PyNode, ByVal s As String, ByVal isRaw 
     FlushLit nd, lit, isRaw, ln
 End Sub
 
-Private Function ParseSubExpr(ByVal text As String, ByVal ln As Long) As PyNode
+Private Function ParseSubExpr(ByVal txt As String, ByVal ln As Long) As PyNode
     Dim saveP As Long, startTok As Long, e As PyNode
-    If Len(Trim$(text)) = 0 Then LexErr "f-string: empty expression not allowed", ln, False
+    If Len(Trim$(txt)) = 0 Then LexErr "f-string: empty expression not allowed", ln, False
     saveP = P
     startTok = tkN
-    Tokenize text, ln, True
+    Tokenize txt, ln, True
     P = startTok
     Set e = ParseTestListStar()
     If tkType(P) <> TT_EOF Then LexErr "f-string: invalid syntax", ln, False
