@@ -134,7 +134,7 @@ def excel_checks(doc, run, call_lisp, call_runsheet):
     got = [call_lisp.invoke((s,), (), ())[0] for s in
            ["(+ 1 2)", "(define (sq x) (* x x)) (sq 12)", '(string-append "a" "b")', "(list 1 (quote x))",
             "(> 1 2)", '(display "out")', "(car '())"]]
-    results.append(("LISP()", [3, 144, "ab", "(1 x)", False, "out", "Error: car: empty list"], got))
+    results.append(("LISP()", [3, 144, "ab", "(1 x)", False, "out", "Error: car: expected a pair, got ()"], got))
     # RunSheet: column A holds code, results go to column B; definitions carry over
     rows = ["(define (sq x) (* x x))", "(sq 9)", "", '(display "hi") (newline) (+ 1 2)', "(oops)", "(sq 3)"]
     for i, code in enumerate(rows):

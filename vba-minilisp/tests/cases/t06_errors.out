@@ -1,12 +1,12 @@
 Error: unbound variable: foo
-Error: car: empty list
-Error: car: expected a list, got 5
+Error: car: expected a pair, got ()
+Error: car: expected a pair, got 5
 Error: expected a number, got "a"
 Error: /: division by zero
 Error: not a procedure: 1
 Error: procedure expects 2 argument(s), got 1
 Error: display: expects 1 argument(s), got 2
-Error: cons: second argument must be a list
+Error: set-car!: expected a pair, got ()
 Error: set!: unbound variable: undefined-thing
 Error: bad syntax, expected (if test then [else])
 Error: bad syntax, expected (define name value) or (define (name params...) body...)
@@ -17,10 +17,15 @@ Error: unexpected ')'
 Error: unterminated string
 Error: Something went wrong: 42 "x"
 before
-Error: car: empty list
+Error: car: expected a pair, got ()
 Error: unknown syntax: #xyz
 Error: unbound variable: undefined
 Error: cannot evaluate an empty list ()
 Error: string-append: expected a string, got 1
 Error: sqrt: negative number
 Error: apply: expected a list, got 1
+Error: length: expected a list, got (1 2 . 3)
+Error: cannot evaluate a dotted list
+Error: cannot evaluate a dotted list
+Error: bad dotted list
+Error: procedure expects at least 2 argument(s), got 1

@@ -5,13 +5,13 @@ Attribute VB_Name = "MiniLisp"
 ' 整个解释器只有三步，反复执行：
 '
 '     源代码 --Tokenize--> 记号 --ReadExpr--> 表达式 --Eval--> 值 --ToText--> 文字
-'     "(+ 1 2)"            ( + 1 2 )        Array("+",1,2)      3              "3"
+'     "(+ 1 2)"            ( + 1 2 )        列表 (+ 1 2)        3              "3"
 '
 ' 本文件从上到下依次是：
-'   第 0 部分  数据怎么表示
+'   第 0 部分  数据怎么表示；序对（cons）和“内存”
 '   第 1 部分  在 Excel 里使用（入口）
 '   第 2 部分  Tokenize   —— 词法分析：把文字切成记号
-'   第 3 部分  ReadExpr   —— 语法分析：把记号变成嵌套的数组
+'   第 3 部分  ReadExpr   —— 语法分析：把记号变成列表
 '   第 4 部分  Eval       —— 求值（解释器的心脏）
 '   第 5 部分  Apply      —— 调用函数
 '   第 6 部分  内置函数    —— 想加新函数就改这里
@@ -33,20 +33,102 @@ Option Explicit
 '   #t   #f          Boolean
 '   x    +   list?   String                             符号（变量名）
 '   "hi"             Array("#str", "hi")                字符串，带 #str 标签
-'   (1 2 3)          Array(1, 2, 3)                     列表 = 数组
-'   ()               Array()                            空表 = 空数组
+'   (1 . 2)  (1 2)   Long：序对的编号（见下面）           序对、列表
+'   ()               Long 0（变量 NIL）                  空表
 '   (lambda ...)     Array("#lambda", 参数, 函数体, 环境) 用户定义的函数
 '   +  car ...       Array("#builtin", "+")             内置函数
 '   (没有值)          Empty                              define、display 的返回值
 '
-' 带标签的数组第一个元素是以 # 开头的字符串。普通符号不可能以 # 开头
-' （读入时会报错），所以不会和普通列表混淆。
+' ---- 序对和“内存” ----
+' Lisp 的一切列表都由“序对”(pair，也叫 cons cell) 搭成。一个序对有两格：
+' car 和 cdr。所有序对都放在两个大数组 gCar、gCdr 里：
+' 第 i 号序对的 car 是 gCar(i)，cdr 是 gCdr(i)。
+' 一个序对在 VBA 里就是它的编号 i（Long 类型），就像 C 语言里的指针。
+' 编号 0 不用，留给空表 ()。
+'
+'   列表 (1 2 3) 其实是 (1 . (2 . (3 . ())))，在“内存”里是这样的：
+'
+'       编号      1     2     3
+'       gCar      1     2     3
+'       gCdr      2     3     0        <- 0 就是 ()
+'
+'   所以 (1 2 3) 这个值就是 Long 1：从 1 号序对出发，顺着 cdr 一直走到 0。
+'   (cons 0 那个列表) 只需要新造一个序对：gCar = 0，gCdr = 1。
+'
+' 因为数字都是 Double，Long 只用来表示序对，两者不会混淆。
+' 带标签的数组第一个元素是以 # 开头的字符串；普通符号不可能以 # 开头
+' （读入时会报错），所以标签也不会和别的值混淆。
 '--------------------------------------------------------------
 
 Private Const LISP_ERROR As Long = -2147220504   ' = vbObjectError + 1000，MiniLisp 自己的错误号
 
+Private NIL As Long             ' 空表 ()，值永远是 0。（不用 Const 是因为 LibreOffice 会把 Const 0 当成 Integer）
+Private gCar() As Variant       ' 第 i 号序对的 car
+Private gCdr() As Variant       ' 第 i 号序对的 cdr
+Private gPairCount As Long      ' 已经用掉了几个序对
+Private gMemoryReady As Boolean ' gCar / gCdr 是否已经建好
+
 Private gGlobal As LispEnv      ' 全局环境（RunSheet / LispRepl 共用）
 Private gOut As String          ' display 输出的文字先攒在这里
+
+' 清空“内存”：之前造的序对全部作废
+Private Sub ResetMemory()
+    ReDim gCar(0 To 1023)
+    ReDim gCdr(0 To 1023)
+    gPairCount = 0
+    gMemoryReady = True
+End Sub
+
+' 造一个新序对，返回它的编号
+Private Function Cons(ByVal a As Variant, ByVal d As Variant) As Long
+    If gPairCount >= UBound(gCar) Then
+        ' 数组用完了：容量翻倍
+        ReDim Preserve gCar(0 To UBound(gCar) * 2)
+        ReDim Preserve gCdr(0 To UBound(gCdr) * 2)
+    End If
+    gPairCount = gPairCount + 1
+    gCar(gPairCount) = a
+    gCdr(gPairCount) = d
+    Cons = gPairCount
+End Function
+
+Private Function Car(ByVal p As Variant) As Variant
+    If Not IsPair(p) Then LispError "car: expected a pair, got " & ToText(p, True)
+    Car = gCar(p)
+End Function
+
+Private Function Cdr(ByVal p As Variant) As Variant
+    If Not IsPair(p) Then LispError "cdr: expected a pair, got " & ToText(p, True)
+    Cdr = gCdr(p)
+End Function
+
+Private Sub SetCar(ByVal p As Variant, ByVal v As Variant)
+    If Not IsPair(p) Then LispError "set-car!: expected a pair, got " & ToText(p, True)
+    gCar(p) = v
+End Sub
+
+Private Sub SetCdr(ByVal p As Variant, ByVal v As Variant)
+    If Not IsPair(p) Then LispError "set-cdr!: expected a pair, got " & ToText(p, True)
+    gCdr(p) = v
+End Sub
+
+Private Function IsPair(ByVal v As Variant) As Boolean
+    If VarType(v) = vbLong Then IsPair = (v <> NIL)
+End Function
+
+Private Function IsNil(ByVal v As Variant) As Boolean
+    If VarType(v) = vbLong Then IsNil = (v = NIL)
+End Function
+
+' 把编号大于 mark 的序对还回去（=LISP() 用完就扔，不占内存）
+Private Sub FreePairs(ByVal mark As Long)
+    Dim i As Long
+    For i = mark + 1 To gPairCount
+        gCar(i) = Empty
+        gCdr(i) = Empty
+    Next
+    gPairCount = mark
+End Sub
 
 '==============================================================
 ' 第 1 部分  在 Excel 里使用
@@ -68,7 +150,9 @@ End Function
 ' 返回最后一个表达式的值；如果它没有值，就返回 display 输出的文字。
 ' 每次调用都使用独立的新环境，不会影响 RunSheet 的变量。
 Public Function LISP(ByVal code As String) As Variant
-    Dim env As LispEnv, v As Variant, savedOut As String
+    Dim env As LispEnv, v As Variant, savedOut As String, mark As Long
+    If Not gMemoryReady Then ResetMemory
+    mark = gPairCount               ' 记住现在用到哪个序对，结束时把新造的都还回去
     savedOut = gOut
     gOut = ""
     On Error GoTo Failed
@@ -82,10 +166,13 @@ Public Function LISP(ByVal code As String) As Variant
         LISP = ToText(v, False)
     End If
     env.Clear
+    FreePairs mark
     gOut = savedOut
     Exit Function
 Failed:
     LISP = "Error: " & Err.Description
+    If Not (env Is Nothing) Then env.Clear
+    FreePairs mark
     gOut = savedOut
 End Function
 
@@ -125,9 +212,10 @@ Public Sub LispRepl()
     Loop
 End Sub
 
-' 重新开始：丢掉所有用户定义，建立新的全局环境
+' 重新开始：清空内存，丢掉所有用户定义，建立新的全局环境
 Public Sub LispReset()
     If Not (gGlobal Is Nothing) Then gGlobal.Clear
+    ResetMemory
     Set gGlobal = NewGlobalEnv()
 End Sub
 
@@ -185,8 +273,9 @@ Private Function Prelude() As String
     p = p & "        ((keep? (car lst)) (cons (car lst) (filter keep? (cdr lst))))" & vbLf
     p = p & "        (else (filter keep? (cdr lst)))))" & vbLf
     p = p & "(define (reverse lst)" & vbLf
-    p = p & "  (if (null? lst) '()" & vbLf
-    p = p & "      (append (reverse (cdr lst)) (list (car lst)))))" & vbLf
+    p = p & "  (define (loop lst acc)" & vbLf
+    p = p & "    (if (null? lst) acc (loop (cdr lst) (cons (car lst) acc))))" & vbLf
+    p = p & "  (loop lst '()))" & vbLf
     Prelude = p
 End Function
 
@@ -242,7 +331,7 @@ Private Function Tokenize(ByVal src As String) As Collection
             ' 中文输入法打出的全角括号，初学者很容易写错
             LispError "full-width parenthesis found, please use ( and )"
         Else
-            ' 其它：一直读到空白或括号为止，比如 define、42、list?
+            ' 其它：一直读到空白或括号为止，比如 define、42、list?、.
             tok = ""
             Do While i <= n
                 c = Mid$(src, i, 1)
@@ -261,34 +350,50 @@ Private Function IsSpace(ByVal c As String) As Boolean
 End Function
 
 '==============================================================
-' 第 3 部分  ReadExpr —— 把记号变成表达式（嵌套数组）
+' 第 3 部分  ReadExpr —— 把记号变成表达式
 '
-'   ( + 1 ( * 2 3 ) )   ->   Array("+", 1, Array("*", 2, 3))
+'   ( + 1 ( * 2 3 ) )   ->   列表 (+ 1 (* 2 3))，由序对搭成
 '
 ' 从第 pos 个记号开始读出“一个”完整的表达式，读完后 pos 指向下一个记号。
-' 遇到 ( 就递归地一个个读元素，直到 ) 为止 —— 递归天然地处理了嵌套。
+' 遇到 ( 就交给 ReadListRest 一个个读元素，直到 ) 为止。
+' 元素本身又可能是列表 —— 递归天然地处理了嵌套。
 '==============================================================
 Private Function ReadExpr(ByVal toks As Collection, ByRef pos As Long) As Variant
-    Dim tok As String, items As Variant
+    Dim tok As String
     If pos > toks.Count Then LispError "unexpected end of input"
     tok = toks.Item(pos)
     pos = pos + 1
     If tok = "(" Then
-        items = Array()
-        Do
-            If pos > toks.Count Then LispError "missing ')'"
-            If toks.Item(pos) = ")" Then Exit Do
-            items = Concat(items, Array(ReadExpr(toks, pos)))
-        Loop
-        pos = pos + 1               ' 跳过 )
-        ReadExpr = items
+        ReadExpr = ReadListRest(toks, pos)
     ElseIf tok = ")" Then
         LispError "unexpected ')'"
     ElseIf tok = "'" Then
         ' 'x 是 (quote x) 的简写
-        ReadExpr = Array("quote", ReadExpr(toks, pos))
+        ReadExpr = Cons("quote", Cons(ReadExpr(toks, pos), NIL))
     Else
         ReadExpr = ParseAtom(tok)
+    End If
+End Function
+
+' 已经读过了 "("，接着读列表剩下的部分，直到 ")"：
+'   a b c )      ->  (a b c)   也就是 (cons a (cons b (cons c '())))
+'   a b . c )    ->  (a b . c) 点号后面的就是最后一个 cdr
+Private Function ReadListRest(ByVal toks As Collection, ByRef pos As Long) As Variant
+    Dim tok As String, first As Variant
+    If pos > toks.Count Then LispError "missing ')'"
+    tok = toks.Item(pos)
+    If tok = ")" Then
+        pos = pos + 1
+        ReadListRest = NIL
+    ElseIf tok = "." Then
+        pos = pos + 1
+        ReadListRest = ReadExpr(toks, pos)
+        If pos > toks.Count Then LispError "missing ')'"
+        If toks.Item(pos) <> ")" Then LispError "bad dotted list"
+        pos = pos + 1
+    Else
+        first = ReadExpr(toks, pos)                             ' 先读第一个元素
+        ReadListRest = Cons(first, ReadListRest(toks, pos))     ' 再读剩下的，接在后面
     End If
 End Function
 
@@ -309,7 +414,7 @@ Private Function ParseAtom(ByVal tok As String) As Variant
     End If
 End Function
 
-' 像 42、-7、3.14、.5 这样的记号才算数字（+ 和 - 单独出现是符号）
+' 像 42、-7、3.14、.5 这样的记号才算数字（+ - . 单独出现是符号）
 Private Function IsNumberToken(ByVal tok As String) As Boolean
     Dim i As Long, c As String, digits As Long, dots As Long
     For i = 1 To Len(tok)
@@ -335,6 +440,9 @@ End Function
 '   ② 数字等       -> 值就是它自己
 '   ③ 列表 (f ...) -> 如果 f 是特殊形式（if、define……）按各自的规则处理；
 '                     否则是函数调用：先求值每个元素，再交给 Apply
+'
+' 表达式 x 是一个列表：Car(x) 是第一个元素，Nth(x, 1) 是第二个，
+' Drop(x, 2) 是去掉前两个之后剩下的列表。
 '==============================================================
 Public Function Eval(ByVal x As Variant, ByVal env As LispEnv) As Variant
     ' ① 符号
@@ -343,21 +451,21 @@ Public Function Eval(ByVal x As Variant, ByVal env As LispEnv) As Variant
         Exit Function
     End If
 
-    ' ② 不是列表：数字、布尔、字符串、函数……
-    If Not IsList(x) Then
+    ' ② 不是序对：数字、布尔、字符串、函数……
+    If Not IsPair(x) Then
+        If IsNil(x) Then LispError "cannot evaluate an empty list ()"
         Eval = x
         Exit Function
     End If
 
     ' ③ 列表
-    If ListLen(x) = 0 Then LispError "cannot evaluate an empty list ()"
     Select Case HeadName(x)
     Case "quote":  Eval = EvalQuote(x, env)
     Case "if":     Eval = EvalIf(x, env)
     Case "define": Eval = EvalDefine(x, env)
     Case "set!":   Eval = EvalSet(x, env)
     Case "lambda": Eval = EvalLambda(x, env)
-    Case "begin":  Eval = EvalBody(Slice(x, 1), env)
+    Case "begin":  Eval = EvalBody(Cdr(x), env)
     Case "let":    Eval = EvalLet(x, env)
     Case "cond":   Eval = EvalCond(x, env)
     Case "and":    Eval = EvalAnd(x, env)
@@ -377,32 +485,36 @@ End Function
 ' (f a b c)：先算出 f 和每个参数的值，再交给 Apply
 Private Function EvalCall(ByVal x As Variant, ByVal env As LispEnv) As Variant
     Dim f As Variant, args As Variant
-    f = Eval(x(0), env)
-    args = EvalEach(Slice(x, 1), env)
+    f = Eval(Car(x), env)
+    args = EvalArgs(Cdr(x), env)
     EvalCall = Apply(f, args)
 End Function
 
-' 对列表里的每个表达式求值，返回由结果组成的新列表
-Private Function EvalEach(ByVal exprs As Variant, ByVal env As LispEnv) As Variant
+' 对列表里的每个表达式求值，结果放进一个 VBA 数组。
+' （参数用 VBA 数组而不是 Lisp 列表，这样每次调用函数都不用造新的序对）
+Private Function EvalArgs(ByVal exprs As Variant, ByVal env As LispEnv) As Variant
     Dim r() As Variant, i As Long, n As Long
-    n = ListLen(exprs)
+    n = ListLength(exprs)
+    If n < 0 Then LispError "cannot evaluate a dotted list"
     If n = 0 Then
-        EvalEach = Array()
+        EvalArgs = Array()
         Exit Function
     End If
     ReDim r(0 To n - 1)
     For i = 0 To n - 1
-        r(i) = Eval(exprs(i), env)
+        r(i) = Eval(Car(exprs), env)
+        exprs = Cdr(exprs)
     Next
-    EvalEach = r
+    EvalArgs = r
 End Function
 
-' 依次求值多个表达式，返回最后一个的值（函数体、begin、let 都用它）
-Private Function EvalBody(ByVal exprs As Variant, ByVal env As LispEnv) As Variant
-    Dim i As Long, v As Variant
-    For i = 0 To ListLen(exprs) - 1
-        v = Eval(exprs(i), env)
-    Next
+' 依次求值列表里的多个表达式，返回最后一个的值（函数体、begin、let 都用它）
+Private Function EvalBody(ByVal body As Variant, ByVal env As LispEnv) As Variant
+    Dim v As Variant
+    Do While IsPair(body)
+        v = Eval(Car(body), env)
+        body = Cdr(body)
+    Loop
     EvalBody = v
 End Function
 
@@ -413,16 +525,16 @@ End Function
 ' (quote x)：不求值，原样返回 x
 Private Function EvalQuote(ByVal x As Variant, ByVal env As LispEnv) As Variant
     CheckForm x, 2, 2, "(quote x)"
-    EvalQuote = x(1)
+    EvalQuote = Nth(x, 1)
 End Function
 
 ' (if 条件 是则 [否则])：只有 #f 算假，其它值（包括 0 和空表）都算真
 Private Function EvalIf(ByVal x As Variant, ByVal env As LispEnv) As Variant
     CheckForm x, 3, 4, "(if test then [else])"
-    If IsTrue(Eval(x(1), env)) Then
-        EvalIf = Eval(x(2), env)
-    ElseIf ListLen(x) = 4 Then
-        EvalIf = Eval(x(3), env)
+    If IsTrue(Eval(Nth(x, 1), env)) Then
+        EvalIf = Eval(Nth(x, 2), env)
+    ElseIf ListLength(x) = 4 Then
+        EvalIf = Eval(Nth(x, 3), env)
     Else
         EvalIf = Empty
     End If
@@ -433,117 +545,123 @@ End Function
 Private Function EvalDefine(ByVal x As Variant, ByVal env As LispEnv) As Variant
     Dim target As Variant
     CheckForm x, 3, -1, "(define name value) or (define (name params...) body...)"
-    target = x(1)
-    If IsList(target) Then
-        If ListLen(target) = 0 Then LispError "define: missing function name"
-        CheckSymbol target(0), "define"
-        env.Define target(0), MakeLambda(Slice(target, 1), Slice(x, 2), env)
+    target = Nth(x, 1)
+    If IsPair(target) Then
+        CheckSymbol Car(target), "define"
+        env.Define Car(target), MakeLambda(Cdr(target), Drop(x, 2), env)
     Else
         CheckSymbol target, "define"
         CheckForm x, 3, 3, "(define name value)"
-        env.Define target, Eval(x(2), env)
+        env.Define target, Eval(Nth(x, 2), env)
     End If
     EvalDefine = Empty
 End Function
 
 ' (set! 名字 新值)：修改一个已经存在的变量（它可能在外层环境里）
 Private Function EvalSet(ByVal x As Variant, ByVal env As LispEnv) As Variant
-    Dim e As LispEnv
+    Dim e As LispEnv, nm As Variant
     CheckForm x, 3, 3, "(set! name value)"
-    CheckSymbol x(1), "set!"
-    Set e = env.Find(x(1))
-    If e Is Nothing Then LispError "set!: unbound variable: " & x(1)
-    e.Define x(1), Eval(x(2), env)
+    nm = Nth(x, 1)
+    CheckSymbol nm, "set!"
+    Set e = env.Find(nm)
+    If e Is Nothing Then LispError "set!: unbound variable: " & nm
+    e.Define nm, Eval(Nth(x, 2), env)
     EvalSet = Empty
 End Function
 
 ' (lambda (参数...) 函数体...)：造一个函数，并记住“现在所在的环境”
 Private Function EvalLambda(ByVal x As Variant, ByVal env As LispEnv) As Variant
     CheckForm x, 3, -1, "(lambda (params...) body...)"
-    EvalLambda = MakeLambda(x(1), Slice(x, 2), env)
+    EvalLambda = MakeLambda(Nth(x, 1), Drop(x, 2), env)
 End Function
 
+' 参数表可以是 (a b)、(a b . rest)，或者单个符号 args（收集全部参数）
 Private Function MakeLambda(ByVal params As Variant, ByVal body As Variant, ByVal env As LispEnv) As Variant
-    Dim i As Long
-    If IsList(params) Then
-        For i = 0 To ListLen(params) - 1
-            CheckSymbol params(i), "lambda"
-        Next
-    Else
-        CheckSymbol params, "lambda"     ' (lambda args ...)：参数打包成一个列表
-    End If
+    Dim p As Variant
+    p = params
+    Do While IsPair(p)
+        CheckSymbol Car(p), "lambda"
+        p = Cdr(p)
+    Loop
+    If Not IsNil(p) Then CheckSymbol p, "lambda"
     MakeLambda = Array("#lambda", params, body, env)
 End Function
 
 ' (let ((a 1) (b 2)) 函数体...)
 ' 新建一个环境放 a、b，再在里面求值函数体。初值是在“外面”的环境里算的。
 Private Function EvalLet(ByVal x As Variant, ByVal env As LispEnv) As Variant
-    Dim e As LispEnv, bindings As Variant, b As Variant, i As Long
+    Dim e As LispEnv, bindings As Variant, b As Variant
     CheckForm x, 3, -1, "(let ((name value) ...) body...)"
-    bindings = x(1)
-    If Not IsList(bindings) Then LispError "let: bad bindings " & ToText(bindings, True)
+    bindings = Nth(x, 1)
+    If ListLength(bindings) < 0 Then LispError "let: bad bindings " & ToText(bindings, True)
     Set e = New LispEnv
     Set e.Parent = env
-    For i = 0 To ListLen(bindings) - 1
-        b = bindings(i)
-        If Not IsList(b) Then LispError "let: bad binding " & ToText(b, True)
-        If ListLen(b) <> 2 Then LispError "let: bad binding " & ToText(b, True)
-        CheckSymbol b(0), "let"
-        e.Define b(0), Eval(b(1), env)
-    Next
-    EvalLet = EvalBody(Slice(x, 2), e)
+    Do While IsPair(bindings)
+        b = Car(bindings)
+        If ListLength(b) <> 2 Then LispError "let: bad binding " & ToText(b, True)
+        CheckSymbol Car(b), "let"
+        e.Define Car(b), Eval(Nth(b, 1), env)
+        bindings = Cdr(bindings)
+    Loop
+    EvalLet = EvalBody(Drop(x, 2), e)
 End Function
 
 ' (cond (条件1 表达式...) (条件2 表达式...) (else 表达式...))
 ' 从上到下找第一个为真的条件，求值它后面的表达式
 Private Function EvalCond(ByVal x As Variant, ByVal env As LispEnv) As Variant
-    Dim i As Long, clause As Variant, test As Variant
-    For i = 1 To ListLen(x) - 1
-        clause = x(i)
-        If Not IsList(clause) Then LispError "cond: bad clause " & ToText(clause, True)
-        If ListLen(clause) = 0 Then LispError "cond: empty clause"
+    Dim clauses As Variant, clause As Variant, test As Variant
+    clauses = Cdr(x)
+    Do While IsPair(clauses)
+        clause = Car(clauses)
+        If ListLength(clause) < 1 Then LispError "cond: bad clause " & ToText(clause, True)
         If HeadName(clause) = "else" Then
             test = True
         Else
-            test = Eval(clause(0), env)
+            test = Eval(Car(clause), env)
         End If
         If IsTrue(test) Then
-            If ListLen(clause) = 1 Then
+            If IsNil(Cdr(clause)) Then
                 EvalCond = test
             Else
-                EvalCond = EvalBody(Slice(clause, 1), env)
+                EvalCond = EvalBody(Cdr(clause), env)
             End If
             Exit Function
         End If
-    Next
+        clauses = Cdr(clauses)
+    Loop
     EvalCond = Empty
 End Function
 
 ' (and a b ...)：从左到右求值，遇到 #f 就停下返回 #f；全为真则返回最后一个值
 Private Function EvalAnd(ByVal x As Variant, ByVal env As LispEnv) As Variant
-    Dim i As Long, v As Variant
+    Dim items As Variant, v As Variant
     v = True
-    For i = 1 To ListLen(x) - 1
-        v = Eval(x(i), env)
-        If Not IsTrue(v) Then Exit For
-    Next
+    items = Cdr(x)
+    Do While IsPair(items)
+        v = Eval(Car(items), env)
+        If Not IsTrue(v) Then Exit Do
+        items = Cdr(items)
+    Loop
     EvalAnd = v
 End Function
 
 ' (or a b ...)：从左到右求值，遇到第一个真值就停下返回它；全为假返回 #f
 Private Function EvalOr(ByVal x As Variant, ByVal env As LispEnv) As Variant
-    Dim i As Long, v As Variant
+    Dim items As Variant, v As Variant
     v = False
-    For i = 1 To ListLen(x) - 1
-        v = Eval(x(i), env)
-        If IsTrue(v) Then Exit For
-    Next
+    items = Cdr(x)
+    Do While IsPair(items)
+        v = Eval(Car(items), env)
+        If IsTrue(v) Then Exit Do
+        items = Cdr(items)
+    Loop
     EvalOr = v
 End Function
 
 '==============================================================
 ' 第 5 部分  Apply —— 调用函数
 '
+' args 是已经求好值的参数，放在一个 VBA 数组里。
 ' 内置函数：交给 CallBuiltin。
 ' 用户函数：新建一个环境，它的外层(Parent)是函数“定义时”的环境，
 '           把参数放进去，再在里面求值函数体。
@@ -567,19 +685,36 @@ Public Function Apply(ByVal f As Variant, ByVal args As Variant) As Variant
 End Function
 
 ' 把实参放进新环境：参数表 (a b) 对应两个实参；
-' 参数是单个符号时（如 (lambda args ...)）所有实参打包成一个列表
+' (a b . rest) 时多出来的实参打包成列表放进 rest；单个符号 args 收集全部实参
 Private Sub BindParams(ByVal e As LispEnv, ByVal params As Variant, ByVal args As Variant)
-    Dim i As Long
-    If IsSymbol(params) Then
-        e.Define params, args
-        Exit Sub
+    Dim i As Long, n As Long, p As Variant
+    n = UBound(args) + 1
+    p = params
+    Do While IsPair(p)
+        If i >= n Then ArityError params, n
+        e.Define Car(p), args(i)
+        i = i + 1
+        p = Cdr(p)
+    Loop
+    If IsSymbol(p) Then
+        e.Define p, ArrayToList(args, i)
+    ElseIf i < n Then
+        ArityError params, n
     End If
-    If ListLen(params) <> ListLen(args) Then
-        LispError "procedure expects " & ListLen(params) & " argument(s), got " & ListLen(args)
+End Sub
+
+Private Sub ArityError(ByVal params As Variant, ByVal got As Long)
+    Dim need As Long, p As Variant
+    p = params
+    Do While IsPair(p)
+        need = need + 1
+        p = Cdr(p)
+    Loop
+    If IsSymbol(p) Then
+        LispError "procedure expects at least " & need & " argument(s), got " & got
+    Else
+        LispError "procedure expects " & need & " argument(s), got " & got
     End If
-    For i = 0 To ListLen(params) - 1
-        e.Define params(i), args(i)
-    Next
 End Sub
 
 '==============================================================
@@ -588,21 +723,21 @@ End Sub
 ' 添加一个内置函数只要两步：
 '   1. 在 BuiltinNames 里加上名字；
 '   2. 在 CallBuiltin 里加一个 Case，算出结果放进 r。
-' args 是已经求好值的参数列表，n 是参数个数。
+' args 是已经求好值的参数（VBA 数组，从 0 开始），n 是参数个数。
 '==============================================================
 Private Function BuiltinNames() As String
     BuiltinNames = "+ - * / remainder abs min max sqrt" _
         & " = < > <= >= not" _
-        & " car cdr cons list length append apply" _
-        & " null? list? number? symbol? string? boolean? procedure? equal? eq?" _
+        & " cons car cdr set-car! set-cdr! list length append apply" _
+        & " null? pair? list? number? symbol? string? boolean? procedure? eq? equal?" _
         & " string-append string-length number->string" _
         & " display newline error" _
         & " cell set-cell!"
 End Function
 
 Private Function CallBuiltin(ByVal nm As String, ByVal args As Variant) As Variant
-    Dim n As Long, i As Long, acc As Double, r As Variant, lst As Variant, s As String
-    n = ListLen(args)
+    Dim n As Long, i As Long, acc As Double, r As Variant, s As String
+    n = UBound(args) + 1
     Select Case nm
 
     '---------- 算术 ----------
@@ -675,41 +810,50 @@ Private Function CallBuiltin(ByVal nm As String, ByVal args As Variant) As Varia
         NeedArgs nm, n, 1, 1
         r = Not IsTrue(args(0))
 
-    '---------- 列表 ----------
-    Case "car"
-        NeedArgs nm, n, 1, 1
-        lst = NonEmptyList(nm, args(0))
-        r = lst(0)
-    Case "cdr"
-        NeedArgs nm, n, 1, 1
-        lst = NonEmptyList(nm, args(0))
-        r = Slice(lst, 1)
+    '---------- 序对和列表 ----------
     Case "cons"
         NeedArgs nm, n, 2, 2
-        If Not IsList(args(1)) Then LispError "cons: second argument must be a list"
-        r = Concat(Array(args(0)), args(1))
+        r = Cons(args(0), args(1))
+    Case "car"
+        NeedArgs nm, n, 1, 1
+        r = Car(args(0))
+    Case "cdr"
+        NeedArgs nm, n, 1, 1
+        r = Cdr(args(0))
+    Case "set-car!"
+        NeedArgs nm, n, 2, 2
+        SetCar args(0), args(1)
+        r = Empty
+    Case "set-cdr!"
+        NeedArgs nm, n, 2, 2
+        SetCdr args(0), args(1)
+        r = Empty
     Case "list"
-        r = args
+        r = ArrayToList(args, 0)
     Case "length"
         NeedArgs nm, n, 1, 1
-        r = CDbl(ListLen(AsList(nm, args(0))))
+        r = CDbl(ListLength(AsList(nm, args(0))))
     Case "append"
-        r = Array()
-        For i = 0 To n - 1
-            r = Concat(r, AsList(nm, args(i)))
+        ' 前面的列表各复制一份，最后一个直接接在后面（和 Scheme 一样）
+        r = NIL
+        If n > 0 Then r = args(n - 1)
+        For i = n - 2 To 0 Step -1
+            r = AppendTwo(AsList(nm, args(i)), r)
         Next
     Case "apply"
         NeedArgs nm, n, 2, 2
-        r = Apply(args(0), AsList(nm, args(1)))
+        r = Apply(args(0), ListToArray(AsList(nm, args(1))))
 
-    '---------- 类型判断 ----------
+    '---------- 类型判断和比较 ----------
     Case "null?"
         NeedArgs nm, n, 1, 1
-        r = False
-        If IsList(args(0)) Then r = (ListLen(args(0)) = 0)
+        r = IsNil(args(0))
+    Case "pair?"
+        NeedArgs nm, n, 1, 1
+        r = IsPair(args(0))
     Case "list?"
         NeedArgs nm, n, 1, 1
-        r = IsList(args(0))
+        r = (ListLength(args(0)) >= 0)
     Case "number?"
         NeedArgs nm, n, 1, 1
         r = (VarType(args(0)) = vbDouble)
@@ -725,7 +869,10 @@ Private Function CallBuiltin(ByVal nm As String, ByVal args As Variant) As Varia
     Case "procedure?"
         NeedArgs nm, n, 1, 1
         r = (TagOf(args(0)) = "#lambda" Or TagOf(args(0)) = "#builtin")
-    Case "equal?", "eq?"
+    Case "eq?"
+        NeedArgs nm, n, 2, 2
+        r = IsSame(args(0), args(1))
+    Case "equal?"
         NeedArgs nm, n, 2, 2
         r = IsEqual(args(0), args(1))
 
@@ -789,6 +936,15 @@ Private Function CompareNums(ByVal op As String, ByVal a As Double, ByVal b As D
     End Select
 End Function
 
+' 把列表 a 复制一份，最后接上 b。AppendTwo((1 2), (3)) = (1 2 3)
+Private Function AppendTwo(ByVal a As Variant, ByVal b As Variant) As Variant
+    If IsNil(a) Then
+        AppendTwo = b
+    Else
+        AppendTwo = Cons(Car(a), AppendTwo(Cdr(a), b))
+    End If
+End Function
+
 ' 单元格的值 -> Lisp 值
 Private Function FromExcel(ByVal v As Variant) As Variant
     Select Case VarType(v)
@@ -821,7 +977,20 @@ End Function
 ' quoted = True 时字符串带引号显示（REPL 的写法），False 时不带（display 的写法）
 '==============================================================
 Public Function ToText(ByVal v As Variant, ByVal quoted As Boolean) As String
-    Dim s As String, i As Long
+    Dim s As String
+    If IsPair(v) Then
+        ' 列表：顺着 cdr 走，把每个 car 写出来；最后如果不是 ()，写成“ . 尾巴”
+        s = "("
+        Do
+            s = s & ToText(gCar(v), quoted)
+            v = gCdr(v)
+            If Not IsPair(v) Then Exit Do
+            s = s & " "
+        Loop
+        If Not IsNil(v) Then s = s & " . " & ToText(v, quoted)
+        ToText = s & ")"
+        Exit Function
+    End If
     Select Case TagOf(v)
     Case "#str"
         If quoted Then
@@ -837,14 +1006,8 @@ Public Function ToText(ByVal v As Variant, ByVal quoted As Boolean) As String
     Case "#builtin"
         ToText = "#<builtin " & v(1) & ">"
     Case Else
-        If IsArray(v) Then
-            ' 列表：(元素 元素 ...)
-            s = "("
-            For i = 0 To ListLen(v) - 1
-                If i > 0 Then s = s & " "
-                s = s & ToText(v(i), quoted)
-            Next
-            ToText = s & ")"
+        If IsNil(v) Then
+            ToText = "()"
         ElseIf VarType(v) = vbBoolean Then
             If v Then ToText = "#t" Else ToText = "#f"
         ElseIf VarType(v) = vbDouble Then
@@ -894,10 +1057,6 @@ Private Function IsString(ByVal v As Variant) As Boolean
     IsString = (TagOf(v) = "#str")
 End Function
 
-Private Function IsList(ByVal v As Variant) As Boolean
-    If IsArray(v) Then IsList = (TagOf(v) = "")
-End Function
-
 Private Function MakeStr(ByVal s As String) As Variant
     MakeStr = Array("#str", s)
 End Function
@@ -911,62 +1070,89 @@ Private Function IsTrue(ByVal v As Variant) As Boolean
     End If
 End Function
 
-' 列表的长度（空表是 0）
-Private Function ListLen(ByVal lst As Variant) As Long
-    ListLen = UBound(lst) - LBound(lst) + 1
-End Function
-
-' 如果列表的第一个元素是符号，返回它的名字；否则返回 ""
-Private Function HeadName(ByVal lst As Variant) As String
-    If ListLen(lst) > 0 Then
-        If IsSymbol(lst(0)) Then HeadName = lst(0)
+' 列表的长度；如果不是正常的列表（比如 (1 . 2) 或者 5），返回 -1
+Private Function ListLength(ByVal lst As Variant) As Long
+    Dim n As Long
+    Do While IsPair(lst)
+        n = n + 1
+        lst = gCdr(lst)
+    Loop
+    If IsNil(lst) Then
+        ListLength = n
+    Else
+        ListLength = -1
     End If
 End Function
 
-' 从第 start 个元素开始的子列表。Slice(Array(1,2,3), 1) = Array(2,3)
-Private Function Slice(ByVal lst As Variant, ByVal start As Long) As Variant
+' 列表的第 i 个元素（从 0 开始数）。Nth((a b c), 1) = b
+Private Function Nth(ByVal lst As Variant, ByVal i As Long) As Variant
+    Nth = Car(Drop(lst, i))
+End Function
+
+' 去掉前 i 个元素后剩下的列表。Drop((a b c), 1) = (b c)
+Private Function Drop(ByVal lst As Variant, ByVal i As Long) As Variant
+    Dim k As Long
+    For k = 1 To i
+        lst = Cdr(lst)
+    Next
+    Drop = lst
+End Function
+
+' 如果列表的第一个元素是符号，返回它的名字；否则返回 ""
+Private Function HeadName(ByVal x As Variant) As String
+    If IsPair(x) Then
+        If IsSymbol(gCar(x)) Then HeadName = gCar(x)
+    End If
+End Function
+
+' VBA 数组从第 start 个元素起 -> Lisp 列表。从后往前 cons，最后得到的就是正序
+Private Function ArrayToList(ByVal arr As Variant, ByVal start As Long) As Variant
+    Dim i As Long, r As Variant
+    r = NIL
+    For i = UBound(arr) To start Step -1
+        r = Cons(arr(i), r)
+    Next
+    ArrayToList = r
+End Function
+
+' Lisp 列表 -> VBA 数组
+Private Function ListToArray(ByVal lst As Variant) As Variant
     Dim r() As Variant, i As Long, n As Long
-    n = ListLen(lst) - start
+    n = ListLength(lst)
     If n <= 0 Then
-        Slice = Array()
+        ListToArray = Array()
         Exit Function
     End If
     ReDim r(0 To n - 1)
     For i = 0 To n - 1
-        r(i) = lst(start + i)
+        r(i) = Car(lst)
+        lst = Cdr(lst)
     Next
-    Slice = r
+    ListToArray = r
 End Function
 
-' 把两个列表接起来。Concat(Array(1,2), Array(3)) = Array(1,2,3)
-Private Function Concat(ByVal a As Variant, ByVal b As Variant) As Variant
-    Dim r() As Variant, i As Long, na As Long, nb As Long
-    na = ListLen(a)
-    nb = ListLen(b)
-    If na + nb = 0 Then
-        Concat = Array()
-        Exit Function
+' eq?：序对比较“是不是同一个”（编号相同），其它值比较内容
+Private Function IsSame(ByVal a As Variant, ByVal b As Variant) As Boolean
+    If VarType(a) = vbLong Or VarType(b) = vbLong Then
+        If VarType(a) = VarType(b) Then IsSame = (a = b)
+    Else
+        IsSame = IsEqual(a, b)
     End If
-    ReDim r(0 To na + nb - 1)
-    For i = 0 To na - 1
-        r(i) = a(i)
-    Next
-    For i = 0 To nb - 1
-        r(na + i) = b(i)
-    Next
-    Concat = r
 End Function
 
-' 两个值是否“长得一样”（列表逐个元素比较）
+' equal?：两个值是否“长得一样”（列表逐个元素比较）
 Private Function IsEqual(ByVal a As Variant, ByVal b As Variant) As Boolean
     Dim i As Long
-    If IsObject(a) Or IsObject(b) Then
+    If IsPair(a) And IsPair(b) Then
+        If IsEqual(gCar(a), gCar(b)) Then IsEqual = IsEqual(gCdr(a), gCdr(b))
+    ElseIf IsObject(a) Or IsObject(b) Then
         ' 函数里藏着的环境对象：是同一个才算相等
         If IsObject(a) And IsObject(b) Then IsEqual = (a Is b)
     ElseIf IsArray(a) Or IsArray(b) Then
+        ' 字符串、函数：逐个元素比较
         If Not (IsArray(a) And IsArray(b)) Then Exit Function
-        If ListLen(a) <> ListLen(b) Then Exit Function
-        For i = 0 To ListLen(a) - 1
+        If UBound(a) <> UBound(b) Then Exit Function
+        For i = 0 To UBound(a)
             If Not IsEqual(a(i), b(i)) Then Exit Function
         Next
         IsEqual = True
@@ -992,7 +1178,7 @@ End Sub
 ' 特殊形式的长度检查，不对就报语法错误
 Private Sub CheckForm(ByVal x As Variant, ByVal lo As Long, ByVal hi As Long, ByVal usage As String)
     Dim n As Long
-    n = ListLen(x)
+    n = ListLength(x)
     If n < lo Or (hi >= 0 And n > hi) Then LispError "bad syntax, expected " & usage
 End Sub
 
@@ -1011,14 +1197,8 @@ Private Function StrArg(ByVal who As String, ByVal v As Variant) As String
 End Function
 
 Private Function AsList(ByVal who As String, ByVal v As Variant) As Variant
-    If Not IsList(v) Then LispError who & ": expected a list, got " & ToText(v, True)
+    If ListLength(v) < 0 Then LispError who & ": expected a list, got " & ToText(v, True)
     AsList = v
-End Function
-
-Private Function NonEmptyList(ByVal who As String, ByVal v As Variant) As Variant
-    If Not IsList(v) Then LispError who & ": expected a list, got " & ToText(v, True)
-    If ListLen(v) = 0 Then LispError who & ": empty list"
-    NonEmptyList = v
 End Function
 
 ' 如果输出不是以换行结尾，先补一个换行
