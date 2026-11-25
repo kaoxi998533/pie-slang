@@ -1,0 +1,26 @@
+;; each
+(foo 1 2)
+(car '())
+(car 5)
+(+ 1 "a")
+(/ 1 0)
+(1 2 3)
+((lambda (x y) x) 1)
+(display 1 2)
+(cons 1 2)
+(set! undefined-thing 1)
+(if)
+(define)
+(let ((x)) x)
+(lambda)
+(+ 1 2
+)
+(display "abc
+(error "Something went wrong:" 42 "x")
+(display "before") (car '()) (display "after")
+#xyz
+(define (f) (f2)) (define (f2) (undefined)) (f)
+()
+(string-append "a" 1)
+(sqrt -1)
+(apply + 1)

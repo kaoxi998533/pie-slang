@@ -1,0 +1,10 @@
+3
+5
+sym
+"a string"
+(1 "two" #t #f)
+hino newline
+7
+#<procedure>
+#<builtin +>
+()

@@ -1,0 +1,21 @@
+(A B C F)
+42
+5
+(10 1)
+1
+3
+#f
+#t
+5
+#f
+1
+#f
+abc
+Hello, World!
+13
+n = 42
+#t
+tab:	| quote:" backslash:\ newline:
+end
+(a b)
+5 4 3 2 1 liftoff
