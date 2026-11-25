@@ -1,0 +1,17 @@
+3 4
+10
+#t#f
+#<point x: 10 y: 4>
+150#f
+(1 0)
+2
+list-key
+101
+3
+#f
+((a . 3) (b . 2) (c . 1))
+(a b c)(3 2 1)
+#f3
+hash-table-ref: key not found: missing
+2
+point-x: expected a point record, got #<account owner: "Ann" balance: 150>

@@ -1,0 +1,9 @@
+=> 3
+=> "str"
+=> sym
+=> (1 "a" #\b)
+hi
+=> 25
+=> 1 2
+=> #<procedure>
+=> #<procedure car>

@@ -1,0 +1,5 @@
+(display "before")
+(newline)
+(define (f x) (car x))
+(f 5)
+(display "after")

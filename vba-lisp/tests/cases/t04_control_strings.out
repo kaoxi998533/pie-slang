@@ -1,0 +1,39 @@
+(negative zero small big)
+two
+(consonant vowel space vowel)
+mid
+(3 #t #f 2 #f #f)
+yes
+(true true #f #t)
+(#t #t #t #f #t #t)
+(12 HELLO, WORLD World foo-bar)
+#\e
+abcxyz
+(a b  c)
+("a" "b" "" "c")
+("one" "two" "three")
+x-y-z
+(4 2 #f)
+(#t #t #t)
+(42 #f -17)
+ab
+pad|
+A65#\a
+"ab"
+"tab\there \"q\" back\\slash"
+007ab  |
+1 + 2 = "three"
+list: (1 2)
+(c b a)
+abc
+cba
+(#t #t #t)
+ABC
+(#t #t #t #t)
+multi
+line
+mixed
+el
+4
+#t#t#t
+1ab

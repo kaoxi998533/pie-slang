@@ -1,0 +1,3 @@
+# The VBA editor needs CRLF line endings when importing modules: store them verbatim.
+*.bas -text
+*.cls -text

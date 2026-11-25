@@ -1,0 +1,25 @@
+5
+error: /: division by zero
+(sym oops)
+boom
+bad thing
+(1 2)
+caught
+vector-ref: index out of range: 5
+unbound variable: undefined-fn
+#<procedure>: wrong number of arguments (expected 1, got 0)
+car: expected a pair, got 5
+my-proc: went wrong: 42
+-3
+(4 #f)
+handled
+[in]body[out]
+<>outer
+assertion failed: (> x 0)
+42
+no error
+(reraised deep)
++: expected a number, got "a"
+maximum recursion depth exceeded
+100
+abescaped
